@@ -146,7 +146,5 @@ spec refuted in one pass.
 
 - If the `SUBSYS` isn't in the corpus, ask them to attach the tuning XML to
   the issue. A brief online check for the XML is fine and a hunt is not,
-  because availability is OEM-dependent. Some OEMs' downloadable driver
-  packages have contained it in the past. ASUS's don't: it ships only through
-  Windows Update on the device, per checks of the EXEs and the Microsoft Update
-  Catalog in #29 and #39.
+  because availability is OEM-dependent. Look in every audio download the OEM
+  publishes for the model, and extract nested archives.

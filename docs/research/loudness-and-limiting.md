@@ -572,6 +572,50 @@ the second DAX attack curve the regulator attack-time question (the
 [fixed dynamics constants](#r-fixed-dynamics-constants)) is parked on, since the
 two flags also remove the thresholds, ratio and boost.
 
+<a id="r-asus-deep-regulator-thresholds"></a>
+
+## Deep regulator thresholds across an ASUS driver package (issue #110)
+
+Issue #110's ASUS tuning carries a deep-threshold regulator. So do 46 of the 67
+tunings in the driver package it ships in. #29's SoundWire Zenbook S14, also
+ASUS, is deep too, at −36.5 dB. #110 is the first ASUS report that points at the
+regulator and volmax. Conditions: the reporter's tuning, `SUBSYS_104310C4`, an
+ALC294 Vivobook S14 S5406. The package is ASUS's Dolby extension
+`ext_asus_consumer_AIO_rtk` v10.123.533.43, 67 distinct DAX3 XMLs. Each was
+parsed with `parse_xml` on the profile the converter picks by default, the first
+listed. Run 2026-10-01.
+
+The reporter's regulator has five active bands, 328–1031 Hz, at −28.6, −20.2,
+−27.0, −21.0 and −25.6 dB. Its `distortion-slope` is 1.00, so 100:1, and volmax
+puts +6.0 dB on the input. The package copy reproduces every value the
+reporter's run printed. Their copy came from a different package in their
+DriverStore, `dax3_ext_rtk`, so byte identity is unconfirmed. They reported
+"less surges/bursts" with `--disable volmax --disable regulator`, which is #84's
+linear reference.
+
+| codec | tunings | deepest ≤ −20 dB | deepest above −20 dB | no active band |
+| --- | ---: | ---: | ---: | ---: |
+| 0256 | 22 | 5 | 16 | 1 |
+| 0285 | 12 | 12 | 0 | 0 |
+| 0294 | 33 | 29 | 3 | 1 |
+| all | 67 | 46 | 19 | 2 |
+
+The −20 dB line is drawn between the dev device's −10 dB and the −30.9 / −29.8
+dB of #44 and #84. It is not a decoded boundary. Depth alone does not predict
+the symptom. #23's X13 has its deepest band at −24 dB and stayed clean on
+`input-gain` ([slot](#r-volmax-boost-slot)). This listener is the one #84's
+section anticipated: a second report, after #44, that our regulator and volmax
+boost are audible on this class. On #44 the listener chose
+`--volmax-slot output-gain` instead. That strengthens the open item on a
+per-tuning slot predictor ([bass loss](#r-deep-threshold-bass-loss)). It changes
+no default, because the bar is a capture.
+
+Open:
+
+- Whether `--volmax-slot output-gain` clears the surges on this device.
+- How the deep share compares across the full corpus, which was unmounted at the
+  time. Re-derive with `tools/corpus_audit.py`.
+
 <a id="r-convolver-headroom-restore"></a>
 
 ## Convolver SoundWire headroom restore

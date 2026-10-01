@@ -128,9 +128,10 @@ that download covers. That layout is why it is the only package here that ships
 two bus-prefixed spellings of the *same* device. See
 [cross-device-findings.md](cross-device-findings.md#17-bus-prefixed-filenames).
 
-Not every audio driver package carries a tuning. For some vendors, none of the
-downloadable ones do. ASUS ships them through Windows Update only, which is why
-its two entries below arrived through issues rather than as a package.
+Not every audio driver package carries a tuning. ASUS's codec, APO and
+smart-amp downloads carry none, which is why its two entries below arrived
+through issues rather than as a package. Its Dolby extension download does carry
+them: 67 tunings in the one fetched for issue #110.
 
 ### The development machine's Windows partition
 

@@ -357,6 +357,7 @@ re-proposed:
 | #84 | EasyEffects plays hot above 48 kHz; the deep-threshold regulator is at [loudness-and-limiting.md#r-deep-threshold-distortion](research/loudness-and-limiting.md#r-deep-threshold-distortion) | [easyeffects-and-pipewire.md#r-convolver-resample-gain](research/easyeffects-and-pipewire.md#r-convolver-resample-gain) |
 | #93 | presets written where EasyEffects stopped reading; the locale pin | [easyeffects-and-pipewire.md#r-flatpak-xdg-roots](research/easyeffects-and-pipewire.md#r-flatpak-xdg-roots) |
 | #95 | unlisted machine, firmware mic setting; the EasyEffects crash is at [easyeffects-and-pipewire.md#r-irs-in-place-rewrite](research/easyeffects-and-pipewire.md#r-irs-in-place-rewrite) | [hardware-and-drivers.md#r-fixed-level-speaker-pin](research/hardware-and-drivers.md#r-fixed-level-speaker-pin) |
+| #110 | surges on an ASUS deep-threshold regulator; the class across one ASUS driver package | [loudness-and-limiting.md#r-asus-deep-regulator-thresholds](research/loudness-and-limiting.md#r-asus-deep-regulator-thresholds) |
 
 ### Moved sections
 
