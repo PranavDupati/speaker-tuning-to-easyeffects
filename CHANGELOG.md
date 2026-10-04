@@ -98,6 +98,21 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   Lenovo IdeaPad Slim 5 14ARP10 (83HT)
   ([#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111)).
 
+### Fixed
+
+- When numpy is missing but `/usr/bin/python3` has it, the error says to run
+  with `/usr/bin/python3` instead of repeating an install command. This
+  happens when another `python3`, such as Homebrew's, comes first on `PATH`
+  ([#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111)).
+- When your distribution has no numpy or SciPy package, as openSUSE Leap 16.0
+  has no SciPy, the error points to a virtualenv instead of an install
+  command that can't work.
+- The `--help` colour tip leaves out a package your distribution doesn't
+  carry, such as `python3-rich-argparse` on Ubuntu 24.04, so its command no
+  longer fails. The README's install list says which packages to leave out
+  where
+  ([#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111)).
+
 ## v2026.09 — Sharper Diagnosis and Fixes for Uncommon Setups
 
 Deeper checks in the run and `--doctor` — PipeWire's clock and dropouts,

@@ -28,9 +28,11 @@ packages do not all ship the .lv2 bundle PipeWire loads.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
-from lib import host
+from lib import host, tool_env
 
 DEBIAN = "debian"
 FEDORA = "fedora"
@@ -110,8 +112,9 @@ _NAMES = {
               ALPINE: "lsp-plugins-lv2", GENTOO: "media-libs/lsp-plugins"},
     # No openSUSE row on purpose: Calf reaches openSUSE only through Packman,
     # a third-party repository, so `lv2-calf` does not resolve on a stock
-    # system — and naming it beside LSP in one `zypper install` would fail the
-    # whole transaction and leave the reader with neither.
+    # system. Named beside LSP in one `zypper install`, it would be reported
+    # missing, and under `zypper -n` the whole transaction would abort and
+    # leave the reader with neither.
     CALF_LV2: {DEBIAN: "calf-plugins", FEDORA: "lv2-calf-plugins",
                ARCH: "calf", ALPINE: "calf-lv2",
                GENTOO: "media-plugins/calf"},
@@ -369,7 +372,9 @@ def _covered(keys, fam: str) -> list[str]:
 # the failure this whole module is about. Asking the machine cannot go stale.
 _AVAILABLE_VERSION = {
     DEBIAN: ("apt-cache", "policy"),
-    FEDORA: ("dnf", "--cacheonly", "repoquery", "--qf", "%{version}"),
+    # One version per line: dnf5 adds no newline after a --qf format, and
+    # runs a release's and its update's versions together without one.
+    FEDORA: ("dnf", "-q", "--cacheonly", "repoquery", "--qf", "%{version}\n"),
     SUSE: ("zypper", "--non-interactive", "--no-refresh", "info"),
     ARCH: ("pacman", "-Si"),
     ALPINE: ("apk", "policy"),
@@ -409,6 +414,121 @@ def available_version_cmd(key, fam: str) -> list[str] | None:
             for a in _AVAILABLE_VERSION[fam]]
     return argv if any("{}" in a for a in _AVAILABLE_VERSION[fam]) else [
         *argv, name]
+
+
+# Per family, the keys `_NAMES` names right for its current release and
+# wrong for a release it still supports. rich-argparse reached Debian in 13
+# and Ubuntu in 25.04: Debian 12 and Ubuntu 22.04 and 24.04, and so Mint
+# 21/22 and Pop!_OS built on them, have no python3-rich-argparse. RHEL, Rocky
+# and Alma get python3-rich and python3-rich-argparse only from EPEL, and
+# EPEL 8 has no rich-argparse. openSUSE Leap 16.0 has rich but no
+# rich-argparse, and no scipy at all. apt and dnf abort the whole install
+# over one name they cannot find. So the machine is asked before one of these
+# names is printed, rather than given a per-release table that goes stale
+# with the next release. Only these: an answer can be wrong in ways that cost
+# nothing for an optional package and mislead for a required one, as an apt
+# that never ran `apt update` saying it has no numpy.
+_KNOWN_GAPS = {
+    DEBIAN: (RICH_ARGPARSE,),
+    FEDORA: (RICH, RICH_ARGPARSE),
+    SUSE: (RICH_ARGPARSE, SCIPY),
+}
+
+# How to ask, offline, whether a package manager would install anything for a
+# name, keyed by family: the manager's own name, for a sentence about what it
+# has, and the query, with the name going on the end. Each reads the
+# provides, as `install` resolves them: openSUSE's python3-rich is a provide
+# of python313-rich, which `zypper info` would miss. dnf's --whatprovides
+# takes the name as its value, so it comes last: placed earlier, it swallows
+# the next option and dnf5 prints nothing. dnf5 adds no newline after a --qf
+# format, so the format carries its own.
+_PRESENCE_QUERY = {
+    DEBIAN: ("apt", ("apt-cache", "policy")),
+    FEDORA: ("dnf", ("dnf", "-q", "--cacheonly", "repoquery",
+                     "--qf", "%{version}\\n", "--whatprovides")),
+    SUSE: ("zypper", ("zypper", "--non-interactive", "--no-refresh", "search",
+                      "--match-exact", "--provides")),
+}
+
+
+def package_manager(fam: str) -> str:
+    """The name of the package manager `unavailable` asks on `fam`, or ""."""
+    return _PRESENCE_QUERY[fam][0] if fam in _PRESENCE_QUERY else ""
+
+
+# zypper's exit code for "matched no package name or capability".
+_ZYPPER_NOT_FOUND = 104
+
+
+def _query(argv) -> subprocess.CompletedProcess | None:
+    """`argv` run through `tool_env`, or None when it could not run."""
+    try:
+        return tool_env.run(argv, capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def available_version_output(key, fam: str) -> str | None:
+    """What `available_version_cmd` prints for `key` on `fam`, or None.
+
+    None for every way of not getting an answer: no query for this family,
+    the tool absent, a timeout, a non-zero exit. Reading the answer is the
+    caller's, since each asks a different question of it.
+    """
+    argv = available_version_cmd(key, fam)
+    proc = _query(argv) if argv else None
+    if proc is None or proc.returncode != 0:
+        return None
+    return proc.stdout or ""
+
+
+def unavailable(key, fam: str) -> bool:
+    """True when `fam`'s package manager says it has nothing to install for
+    `key`, so a command naming it would fail.
+
+    False when it can't be asked or its answer is unclear, because naming
+    the package is right on the family's current release. What counts as
+    "nothing", per family:
+
+    - apt prints nothing for a name it has never heard of, and
+      ``Candidate: (none)`` for one it knows but cannot install. One that
+      has never run ``apt update`` also prints nothing; the two can't be
+      told apart, and the miss costs nothing, since without package lists
+      apt installs nothing at all.
+    - dnf repoquery prints nothing and exits 0. A cacheless repository
+      under ``skip_if_unavailable=True`` is skipped the same way and reads
+      as absent too.
+    - zypper search exits 104. 106, a repository it skipped, is unclear.
+
+    Each answer was run as a non-root user in a container on 2026-10-04:
+    Ubuntu 24.04, Debian 12 and Ubuntu 26.04; Fedora 44 (dnf5), with and
+    without a metadata cache; Rocky 9 (dnf4), with and without EPEL; and
+    openSUSE Leap 16.0. The ``skip_if_unavailable=True`` case is from dnf's
+    source: Rocky 9 ships it False.
+    """
+    if key not in _KNOWN_GAPS.get(fam, ()):
+        return False
+    name = (names([key], fam) or [""])[0]
+    proc = _query([*_PRESENCE_QUERY[fam][1], name]) if name else None
+    if proc is None:
+        return False
+    if fam == SUSE:
+        return proc.returncode == _ZYPPER_NOT_FOUND
+    if proc.returncode != 0:
+        return False
+    out = proc.stdout or ""
+    return not out.strip() or (fam == DEBIAN and any(
+        line.strip() == "Candidate: (none)" for line in out.splitlines()))
+
+
+def installable(key, fam: str) -> bool:
+    """Whether `fam` names a package for `key` that this machine can install.
+
+    For a nudge that is optional, which is better left unsaid than printed
+    with nothing to run. A hard requirement goes through `install_steps`
+    instead, which says why a package is missing from the command.
+    """
+    return bool(names([key], fam)) and not unavailable(key, fam)
 
 
 # The doc section that stays right for a distribution this table does not
@@ -524,6 +644,44 @@ def install_steps(keys, see: str = PLUGINS_SECTION, indent: str = ""
         out.append(("dim", f"({', '.join(labels)}: {text})"))
     out.append(("dim", f"(on another distribution, see {see})"))
     return tuple((style, f"{indent}{text}") for style, text in out)
+
+
+# Where every family that names a system package installs it for. NixOS has
+# no such path, and the probe below then finds nothing to ask.
+SYSTEM_PYTHON = "/usr/bin/python3"
+
+# The oldest Python these scripts run on: RHEL, Rocky and Alma 9's.
+MIN_PYTHON = (3, 9)
+
+
+def system_python_has(modules) -> bool:
+    """True when the distribution's own Python imports every one of
+    `modules` and is new enough to run these scripts.
+
+    Asked only after this process failed to import one of them, so a True
+    means this run is on another interpreter, such as Homebrew's, pyenv's or
+    a virtualenv's, which doesn't see the distribution's packages. Naming
+    the install command to that reader is a loop, because the packages are
+    already installed and the next run fails the same way (issue #111).
+
+    This process's isolation flags go to the probe too. Without them,
+    ``/usr/bin/python3 -s`` with numpy only in the user site would be told
+    that /usr/bin/python3 has numpy.
+    """
+    flags = [flag for flag, on in (("-I", sys.flags.isolated),
+                                   ("-E", sys.flags.ignore_environment),
+                                   ("-s", sys.flags.no_user_site),
+                                   ("-S", sys.flags.no_site)) if on]
+    # Old enough a Python can have both and still not run these scripts:
+    # RHEL 8's is 3.6. The check is written so 3.6 parses it.
+    probe = (f"import sys, {', '.join(modules)}; "
+             f"sys.exit(sys.version_info < {MIN_PYTHON!r})")
+    try:
+        proc = tool_env.run([SYSTEM_PYTHON, *flags, "-c", probe],
+                            capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
 
 
 def print_install_hint(keys, cprint, see: str = PLUGINS_SECTION) -> None:

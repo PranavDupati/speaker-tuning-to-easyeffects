@@ -8,6 +8,8 @@ differently from the one we happen to develop on.
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from lib import packages
@@ -455,3 +457,164 @@ def test_install_verb_spells_out_the_package_manager():
     # either -- both must read as "no command", not as a broken prefix.
     assert packages.install_verb(packages.NIXOS) == ""
     assert packages.install_verb("nonesuch") == ""
+
+
+@pytest.mark.parametrize("apt_says,absent", [
+    ("", True),
+    ("python3-rich-argparse:\n  Installed: (none)\n  Candidate: (none)\n"
+     "  Version table:\n", True),
+    ("python3-rich-argparse:\n  Installed: (none)\n  Candidate: 1.6.0-2\n",
+     False),
+], ids=["unknown-name", "no-candidate", "installable"])
+def test_apt_decides_whether_rich_argparse_is_installable(
+        monkeypatch, apt_says, absent):
+    """Debian 12 and Ubuntu 24.04 and older have no python3-rich-argparse
+    (#111), and apt aborts the whole install over one name it cannot find.
+    Debian 13 and Ubuntu 25.04 and later have it.
+
+    apt says "absent" two ways: nothing at all for a name it has never
+    heard of, and `Candidate: (none)` for one it knows but cannot install.
+    """
+    from lib import tool_env
+    seen = []
+
+    def fake_run(argv, **kwargs):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, apt_says, "")
+
+    monkeypatch.setattr(tool_env, "run", fake_run)
+    assert packages.unavailable(packages.RICH_ARGPARSE,
+                                packages.DEBIAN) is absent
+    assert packages.installable(packages.RICH_ARGPARSE,
+                                packages.DEBIAN) is not absent
+    assert seen == [["apt-cache", "policy", "python3-rich-argparse"]] * 2
+
+
+def test_installable_is_false_where_the_family_has_no_package():
+    assert not packages.installable(packages.RICH_ARGPARSE, packages.ALPINE)
+    assert packages.installable(packages.RICH, packages.ALPINE)
+
+
+@pytest.mark.parametrize("fam,key,returncode,stdout,absent", [
+    ("fedora", "rich", 0, "", True),
+    ("fedora", "rich", 0, "14.3.2\n", False),
+    ("fedora", "rich", 1, "", False),
+    ("suse", "scipy", 104, "No matching items found.\n", True),
+    ("suse", "scipy", 0, "S | Name | ...\n", False),
+    ("suse", "scipy", 106, "", False),
+], ids=["dnf-empty", "dnf-match", "dnf-no-cache", "zypper-104",
+        "zypper-match", "zypper-skipped-repo"])
+def test_dnf_and_zypper_answers_read_as_their_source_says(
+        monkeypatch, fam, key, returncode, stdout, absent):
+    """dnf aborts the whole install over one unknown name, as apt does, and
+    RHEL, Rocky and Alma have python3-rich and python3-rich-argparse only
+    from EPEL. zypper run by hand installs the rest, but a tip naming a
+    package it can't find is still a line with nothing to run.
+
+    Each asks for providers, as `install` resolves them: openSUSE's
+    python3-rich is a provide of python313-rich. dnf repoquery says "none"
+    as empty output with exit 0, and exit 1 when it has no cache. zypper
+    says it with exit 104, and 106 when it skipped a repository.
+    """
+    from lib import tool_env
+    seen = []
+
+    def fake_run(argv, **kwargs):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, returncode, stdout, "")
+
+    monkeypatch.setattr(tool_env, "run", fake_run)
+    assert packages.unavailable(key, fam) is absent
+    name = packages.names([key], fam)[0]
+    assert seen[0][-1] == name
+    # dnf's --whatprovides takes the name as its value. Anywhere but last it
+    # swallows the next option, and dnf5 then prints nothing for a package
+    # it has (seen on Fedora 44).
+    assert seen[0][-2] == ("--whatprovides" if fam == "fedora"
+                           else "--provides")
+
+
+def test_only_known_gaps_are_asked_about(monkeypatch):
+    """Arch, Alpine, Gentoo and NixOS have no known gap, and each says "not
+    found" in words nobody here has checked. Where a family is asked, only
+    about the packages some release of it lacks: an apt that never ran
+    `apt update` prints nothing for any name, which for a required package
+    would read as "this distribution has no numpy".
+    """
+    from lib import tool_env
+
+    def fake_run(argv, **kwargs):
+        raise AssertionError(f"asked the machine: {argv}")
+
+    monkeypatch.setattr(tool_env, "run", fake_run)
+    for fam in (packages.ARCH, packages.ALPINE, packages.GENTOO,
+                packages.NIXOS):
+        for key in packages.PYTHON_KEYS:
+            assert not packages.unavailable(key, fam), (key, fam)
+    for fam, key in ((packages.DEBIAN, packages.NUMPY),
+                     (packages.DEBIAN, packages.SCIPY),
+                     (packages.DEBIAN, packages.RICH),
+                     (packages.FEDORA, packages.NUMPY),
+                     (packages.FEDORA, packages.SCIPY),
+                     (packages.SUSE, packages.NUMPY),
+                     (packages.SUSE, packages.RICH)):
+        assert not packages.unavailable(key, fam), (key, fam)
+
+
+def test_an_unanswered_apt_query_keeps_the_package(monkeypatch):
+    """Not knowing is not "absent". The name is right on the family's
+    current release, so a missing or failing apt-cache keeps it."""
+    from lib import tool_env
+
+    def missing(argv, **kwargs):
+        raise FileNotFoundError(argv[0])
+
+    monkeypatch.setattr(tool_env, "run", missing)
+    assert not packages.unavailable(packages.RICH_ARGPARSE, packages.DEBIAN)
+    monkeypatch.setattr(tool_env, "run", lambda argv, **kwargs:
+                        subprocess.CompletedProcess(argv, 100, "", "E: x"))
+    assert not packages.unavailable(packages.RICH_ARGPARSE, packages.DEBIAN)
+
+
+@pytest.mark.parametrize("returncode,has", [(0, True), (1, False)])
+def test_system_python_has_asks_the_system_interpreter(monkeypatch,
+                                                       returncode, has):
+    from lib import tool_env
+    seen = []
+
+    def fake_run(argv, **kwargs):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, returncode, b"", b"")
+
+    monkeypatch.setattr(tool_env, "run", fake_run)
+    assert packages.system_python_has(("numpy", "scipy")) is has
+    assert seen == [["/usr/bin/python3", "-c",
+                     "import sys, numpy, scipy; "
+                     "sys.exit(sys.version_info < (3, 9))"]]
+
+
+def test_system_python_has_is_false_without_a_system_interpreter(monkeypatch):
+    """NixOS has no /usr/bin/python3, and a missing interpreter is a no."""
+    from lib import tool_env
+
+    def missing(argv, **kwargs):
+        raise FileNotFoundError(argv[0])
+
+    monkeypatch.setattr(tool_env, "run", missing)
+    assert not packages.system_python_has(("numpy",))
+
+
+def test_system_python_has_forwards_this_process_isolation_flags(monkeypatch):
+    """`/usr/bin/python3 -s` with numpy only in the user site must not be
+    told that /usr/bin/python3 has numpy: the probe drops the user site too.
+    """
+    import sys
+    from types import SimpleNamespace
+    from lib import tool_env
+    seen = []
+    monkeypatch.setattr(sys, "flags", SimpleNamespace(
+        isolated=0, ignore_environment=0, no_user_site=1, no_site=1))
+    monkeypatch.setattr(tool_env, "run", lambda argv, **kwargs: (
+        seen.append(argv) or subprocess.CompletedProcess(argv, 1)))
+    assert not packages.system_python_has(("numpy",))
+    assert seen[0][1:3] == ["-s", "-S"]

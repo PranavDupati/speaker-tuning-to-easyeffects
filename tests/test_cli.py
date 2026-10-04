@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -27,7 +28,7 @@ from pathlib import Path
 import pytest
 
 import dolby_to_easyeffects
-from lib import console, doctor, tool_env, version
+from lib import console, doctor, host, packages, tool_env, version
 from lib.data import speaker_pin_quirks
 from lib.data import speaker_route_quirks
 from lib.dax import discover, parse
@@ -588,6 +589,150 @@ def test_help_exits_cleanly():
     result = _run_script("--help")
     assert result.returncode == 0
     assert "Convert Dolby DAX3" in result.stdout
+
+
+@pytest.mark.parametrize("fam,missing,apt_has_it,tip", [
+    ("debian", ["rich-argparse"], False, None),
+    ("debian", ["rich-argparse"], True, "Tip: install rich-argparse"),
+    ("debian", ["rich", "rich-argparse"], False, "Tip: install rich for"),
+    ("alpine", ["rich-argparse"], True, None),
+], ids=["apt-has-none", "apt-has-it", "rich-still-named", "alpine"])
+def test_the_help_tip_names_only_what_this_machine_can_install(
+        monkeypatch, fam, missing, apt_has_it, tip):
+    """Ubuntu 24.04 has no python3-rich-argparse (#111), nor does Alpine. A
+    tip to install it there would print under every --help with nothing to
+    run, so it names only what the machine has a package for, and says
+    nothing when that leaves nothing.
+    """
+    monkeypatch.setattr(packages, "family", lambda *a, **k: fam)
+    monkeypatch.setattr(packages, "unavailable",
+                        lambda key, f: (key == packages.RICH_ARGPARSE
+                                        and f == packages.DEBIAN
+                                        and not apt_has_it))
+    monkeypatch.setattr(console, "_MISSING_COLOR_DEPS", missing)
+    _formatter, epilog = console.help_style(["--help"])
+    if tip is None:
+        assert epilog is None, epilog
+    else:
+        assert epilog.startswith(tip), epilog
+
+
+@pytest.mark.parametrize("argv,shown", [
+    ([], False), (["foo.xml", "--dry-run"], False),
+    (["--help"], True), (["-h"], True), (["--hel"], True), (["--h"], True),
+])
+def test_the_help_tip_asks_the_machine_only_under_help(monkeypatch, argv,
+                                                       shown):
+    """Every parser build calls help_style, dolby_to_pipewire.py's in-process
+    runs included, and the tip it builds prints only under --help. Building
+    it reads os-release and may run apt-cache, which a plain run must not
+    pay for."""
+    asked = []
+    monkeypatch.setattr(packages, "family",
+                        lambda *a, **k: asked.append(1) or packages.DEBIAN)
+    monkeypatch.setattr(packages, "unavailable", lambda key, f: False)
+    monkeypatch.setattr(console, "_MISSING_COLOR_DEPS", ["rich"])
+    _formatter, epilog = console.help_style(argv)
+    assert bool(asked) is shown
+    assert (epilog is not None) is shown, epilog
+
+
+def test_a_missing_scipy_the_distro_has_no_package_for_points_to_pypi(
+        tmp_path):
+    """openSUSE Leap 16.0 carries no scipy package at all, so the zypper
+    command the error used to print could not deliver it, and the next run
+    failed the same way. When the package manager has nothing for numpy or
+    scipy, the remedy is a virtualenv.
+
+    The machine is faked as Leap: an os-release under ATMOS_HOST_ROOT, and a
+    zypper stand-in that exits 104, its "nothing provides it", for
+    python3-scipy only.
+    """
+    blocker = tmp_path / "blocker"
+    blocker.mkdir()
+    (blocker / "scipy.py").write_text(
+        "raise ModuleNotFoundError(\"No module named 'scipy'\", "
+        "name='scipy')\n")
+    host_root = tmp_path / "host"
+    (host_root / "etc").mkdir(parents=True)
+    (host_root / "etc" / "os-release").write_text(
+        'ID="opensuse-leap"\nVERSION_ID="16.0"\nID_LIKE="suse opensuse"\n')
+    fake_tools = tmp_path / "fake-tools"
+    fake_tools.mkdir()
+    zypper = fake_tools / "zypper"
+    zypper.write_text('#!/bin/sh\nfor a; do last=$a; done\n'
+                      '[ "$last" = python3-scipy ] && exit 104\nexit 0\n')
+    zypper.chmod(0o755)
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    pythonpath = os.pathsep.join(
+        p for p in (str(blocker), os.environ.get("PYTHONPATH")) if p)
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(xml), "--dry-run",
+         "--output-dir", str(tmp_path / "presets"),
+         "--irs-dir", str(tmp_path / "irs")],
+        capture_output=True, text=True, timeout=120,
+        env={**os.environ, "PYTHONPATH": pythonpath, "COLUMNS": "500",
+             host.HOST_ROOT: str(host_root),
+             tool_env.FAKE_TOOLS_DIR: str(fake_tools)})
+    out = result.stdout
+    assert result.returncode == 1, out + result.stderr
+    assert "scipy is not installed" in out, out
+    assert "zypper has no python3-scipy here" in out, out
+    assert "pip install -r requirements.txt" in out, out
+    assert "zypper install" not in out, out
+
+
+@pytest.mark.parametrize("system_has_them", [False, True],
+                         ids=["nowhere", "system-python-has-them"])
+def test_a_missing_numpy_names_the_remedy_that_works_here(tmp_path,
+                                                          system_has_them):
+    """When the distribution's Python has numpy and scipy and this run's
+    doesn't, the fix is the interpreter, not an install command.
+
+    In #111 Homebrew's `python3` came ahead of /usr/bin on PATH. The install
+    command the error printed would have reported both packages present,
+    and the next run would have failed the same way. With no Python that has
+    them, the install command is still the answer.
+
+    numpy is shadowed by a module that raises what a missing one raises, and
+    the system Python by a stand-in in `ATMOS_FAKE_TOOLS_DIR` that exits 0,
+    since `tool_env` gates the real one.
+    """
+    blocker = tmp_path / "blocker"
+    blocker.mkdir()
+    (blocker / "numpy.py").write_text(
+        "raise ModuleNotFoundError(\"No module named 'numpy'\", "
+        "name='numpy')\n")
+    fake_tools = tmp_path / "fake-tools"
+    fake_tools.mkdir()
+    if system_has_them:
+        stand_in = fake_tools / "python3"
+        stand_in.write_text("#!/bin/sh\nexit 0\n")
+        stand_in.chmod(0o755)
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    argv = [str(SCRIPT), str(xml), "--dry-run",
+            "--output-dir", str(tmp_path / "presets"),
+            "--irs-dir", str(tmp_path / "irs")]
+    pythonpath = os.pathsep.join(
+        p for p in (str(blocker), os.environ.get("PYTHONPATH")) if p)
+    result = subprocess.run(
+        [sys.executable, *argv], capture_output=True, text=True, timeout=120,
+        env={**os.environ, "PYTHONPATH": pythonpath, "COLUMNS": "500",
+             tool_env.FAKE_TOOLS_DIR: str(fake_tools)})
+    out = result.stdout
+    assert result.returncode == 1, out + result.stderr
+    assert "numpy is not installed" in out, out
+    rerun = shlex.join([packages.SYSTEM_PYTHON, *argv])
+    if system_has_them:
+        # The Error line goes through doctor.tilde(), so a Python under
+        # $HOME prints as ~/...
+        assert (f"for {doctor.tilde(sys.executable)}, the Python this ran "
+                "under") in out, out
+        assert rerun in out, out
+        assert "Install them:" not in out, out
+    else:
+        assert "Install them:" in out, out
+        assert rerun not in out, out
 
 
 def _style_at(script: Path, context: str, token: str):

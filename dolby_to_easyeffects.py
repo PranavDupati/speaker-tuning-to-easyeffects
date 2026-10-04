@@ -24,6 +24,7 @@ Output chain:
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -762,6 +763,45 @@ def main(argv: list[str] | None = None,
         # empty string exists for a sentence that already ends on the thing to
         # do. This one hands over the thing to do itself, and the generic
         # --help pointer still never appears.
+        if packages.system_python_has(("numpy", "scipy")):
+            # Installed, but for another interpreter: Homebrew's `python3`
+            # ahead of /usr/bin on PATH is how #111 got here. The install
+            # command below would report both packages present and leave the
+            # next run failing the same way, so the remedy is the interpreter.
+            # sys.argv, not `argv`: dolby_to_pipewire.py runs this in-process
+            # with a rebuilt argv, and the command to rerun is the one typed.
+            failure = RuntimeError(
+                f"{exc.name} is not installed for {sys.executable}, the "
+                "Python this ran under, and generating a preset needs it.")
+            failure.next_step = (
+                ("cta", f"{packages.SYSTEM_PYTHON} has numpy and scipy. "
+                        "Run with it:"),
+                ("cta", "  " + shlex.join([packages.SYSTEM_PYTHON,
+                                           *sys.argv])),
+                # For a reader who picked this interpreter on purpose.
+                ("dim", "or in a virtualenv:  pip install -r requirements.txt"),
+            )
+            raise failure from exc
+        dsp_keys = [packages.NUMPY, packages.SCIPY]
+        fam = packages.family()
+        absent = packages.names(
+            [k for k in dsp_keys if packages.unavailable(k, fam)], fam)
+        if absent:
+            # The distribution has no package to install: openSUSE Leap 16.0
+            # carries no scipy at all. The install command below would leave
+            # the next run failing the same way, so the remedy is PyPI.
+            failure = RuntimeError(
+                f"{exc.name} is not installed, and generating a preset "
+                "needs it.")
+            failure.next_step = (
+                ("cta", f"{packages.package_manager(fam)} has no "
+                        f"{' or '.join(absent)} here, so install the "
+                        "dependencies in a virtualenv:"),
+                ("cta", "  python3 -m venv .venv && source .venv/bin/activate"),
+                ("cta", "  pip install -r requirements.txt"),
+                ("dim", "then run the same command again in that shell"),
+            )
+            raise failure from exc
         failure = RuntimeError(
             f"{exc.name} is not installed, and generating a preset needs it.")
         # The command installs both DSP dependencies, though the sentence
@@ -774,7 +814,7 @@ def main(argv: list[str] | None = None,
             # Indented under the lead-in: run_guarded gives every line of a
             # next_step the same margin, so the command needs its own to read
             # as the thing "Install them:" is pointing at.
-            *packages.install_steps([packages.NUMPY, packages.SCIPY],
+            *packages.install_steps(dsp_keys,
                                     packages.README_INSTALL_SECTION, "  "),
             # The answer on a distribution the table doesn't list, and for
             # anyone who would rather not touch system packages at all.

@@ -492,16 +492,28 @@ def help_style(argv: list[str] | None = None):
     formatter_class = (argparse.HelpFormatter
                        if "--no-color" in _argv else _HelpFormatter)
     epilog = None
-    if _MISSING_COLOR_DEPS:
-        tip = ("Tip: install " + " and ".join(_MISSING_COLOR_DEPS)
+    # The epilog only ever prints under --help, and building it reads
+    # os-release and may ask the package manager. Every parser build calls
+    # this, dolby_to_pipewire.py's in-process runs included, so the rest wait
+    # for a --help argparse would act on, abbreviations of it included.
+    wants_help = any(a == "-h" or (len(a) >= 3 and "--help".startswith(a))
+                     for a in _argv)
+    fam = packages.family() if _MISSING_COLOR_DEPS and wants_help else ""
+    # A dependency this machine has no package for is left out of the tip.
+    # Kept in, it would print under every --help with nothing to install, as
+    # rich-argparse on Ubuntu 24.04 or Alpine would.
+    missing = [d for d in _MISSING_COLOR_DEPS
+               if not fam or packages.installable(_COLOR_KEYS[d], fam)]
+    if missing and wants_help:
+        tip = ("Tip: install " + " and ".join(missing)
                + " for colored output")
-        keys = [_COLOR_KEYS[d] for d in _MISSING_COLOR_DEPS]
+        keys = [_COLOR_KEYS[d] for d in missing]
         # Only for a machine os-release places. Unplaced, this would put seven
         # commands under every --help on a plain install, to save a reader who
         # is not blocked one lookup — the epilog stays the pointer there.
         steps = (packages.install_steps(keys, packages.README_INSTALL_SECTION,
                                         "  ")
-                 if packages.family() else ())
+                 if fam else ())
         if steps:
             epilog = "\n".join([tip + ":"] + [text for _style, text in steps])
             formatter_class = _raw_epilog(formatter_class, epilog)

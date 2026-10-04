@@ -301,21 +301,22 @@ def _distro_easyeffects_major(fam: str) -> int | None:
     7.x, loads the preset and silently does almost nothing. That is exactly
     what the check that calls this exists to catch.
     """
-    argv = packages.available_version_cmd(packages.EASYEFFECTS, fam)
-    if not argv:
+    out = packages.available_version_output(packages.EASYEFFECTS, fam)
+    if out is None:
         return None
-    try:
-        proc = tool_env.run(argv, capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if proc.returncode != 0:
-        return None
-    for line in (proc.stdout or "").splitlines():
+    # dnf lists every available version, one bare number per line, and an
+    # install gets the newest. A labelled answer below is already the one an
+    # install gets, and apt's version table after it is unlabelled too, so
+    # the first labelled answer wins and bare lines only count without one.
+    bare: list[int] = []
+    for line in out.splitlines():
         label, sep, rest = line.partition(":")
         if not sep:
-            # `dnf --qf` prints the bare number with no label at all.
-            answer = line
-        elif label.strip().lower() in _CANDIDATE_LABELS:
+            m = _VERSION_TOKEN.search(line)
+            if m:
+                bare.append(int(m.group(1)))
+            continue
+        if label.strip().lower() in _CANDIDATE_LABELS:
             # apt's "Candidate", pacman's and zypper's "Version": the label
             # that means "what an install would get". apt prints "Installed"
             # too, and taking that one would read a 7.x already on the machine
@@ -329,7 +330,7 @@ def _distro_easyeffects_major(fam: str) -> int | None:
         m = _VERSION_TOKEN.search(answer)
         if m:
             return int(m.group(1))
-    return None
+    return max(bare) if bare else None
 
 
 def easyeffects_install_steps() -> tuple[tuple[str, str], ...]:

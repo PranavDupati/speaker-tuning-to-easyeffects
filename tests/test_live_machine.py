@@ -197,6 +197,31 @@ def test_the_package_manager_still_names_an_easyeffects_candidate():
     assert major is not None and major >= 6, (fam, argv, major)
 
 
+def test_the_package_manager_still_says_absent_the_way_unavailable_reads_it(
+        monkeypatch):
+    """Both answers, read for real: a name nothing provides is absent, and
+    the package manager's own package is not."""
+    fam = packages.family()
+    query = packages._PRESENCE_QUERY.get(fam)
+    if not query:
+        pytest.skip(f"no presence query for distro family {fam!r}")
+    _need(query[0])
+    row = dict(packages._NAMES[packages.RICH_ARGPARSE])
+    monkeypatch.setitem(packages._NAMES, packages.RICH_ARGPARSE, row)
+    row[fam] = "atmos-no-such-package"
+    assert packages.unavailable(packages.RICH_ARGPARSE, fam)
+    row[fam] = {packages.DEBIAN: "apt", packages.FEDORA: "dnf",
+                packages.SUSE: "zypper"}[fam]
+    assert not packages.unavailable(packages.RICH_ARGPARSE, fam)
+
+
+def test_the_system_python_still_answers_an_import_probe():
+    if not Path(packages.SYSTEM_PYTHON).exists():
+        pytest.skip(f"no {packages.SYSTEM_PYTHON}")
+    assert packages.system_python_has(("json",))
+    assert not packages.system_python_has(("atmos_no_such_module",))
+
+
 # --- host files -----------------------------------------------------------
 
 

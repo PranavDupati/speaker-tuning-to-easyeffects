@@ -3161,6 +3161,17 @@ class _Ran:
         self.returncode, self.stdout, self.stderr = returncode, stdout, ""
 
 
+def test_dnf_listing_several_versions_reads_as_the_newest(monkeypatch):
+    """dnf lists every available version, a release's and its update's, one
+    per line, and an install gets the newest. Taking the first line read a
+    Fedora whose `fedora` repo has 7.x and `updates` 8.x as shipping 7, and
+    sent its reader to the Flatpak instead of `dnf install`.
+    """
+    monkeypatch.setattr(tool_env, "run",
+                        lambda cmd, **kwargs: _Ran(0, "7.2.3\n8.0.1\n"))
+    assert doctor_run._distro_easyeffects_major(packages.FEDORA) == 8
+
+
 @pytest.mark.parametrize("fam", [
     packages.DEBIAN,
     packages.FEDORA,
