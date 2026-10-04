@@ -10,6 +10,8 @@ Stdlib-only on purpose: ``ee_to_pipewire.py`` imports this for ``--version``
 and must not pull numpy/scipy into its startup path just to read a version.
 """
 
+from __future__ import annotations
+
 import re
 import subprocess
 from pathlib import Path

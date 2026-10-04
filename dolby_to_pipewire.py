@@ -11,6 +11,8 @@ Then PipeWire is restarted and the sink verified (--no-activate opts out).
 See docs/ee-to-pipewire.md.
 """
 
+from __future__ import annotations
+
 import argparse
 import shlex
 import sys

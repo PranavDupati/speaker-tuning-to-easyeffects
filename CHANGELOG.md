@@ -104,6 +104,8 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   with `/usr/bin/python3` instead of repeating an install command. This
   happens when another `python3`, such as Homebrew's, comes first on `PATH`
   ([#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111)).
+- The scripts run on Python 3.9, the `python3` of RHEL, Rocky and Alma 9.
+  Three modules failed to import there.
 - When your distribution has no numpy or SciPy package, as openSUSE Leap 16.0
   has no SciPy, the error points to a virtualenv instead of an install
   command that can't work.

@@ -1078,3 +1078,46 @@ def test_a_stand_in_is_the_one_tool_the_gate_still_finds(monkeypatch, tmp_path):
                         text=True).stdout == "[]\n"
     with pytest.raises(FileNotFoundError):
         tool_env.run(["amixer", "-c0", "contents"])
+
+
+def test_a_union_annotation_comes_with_the_future_import():
+    """`str | None` in an annotation is evaluated at import time before
+    Python 3.10 unless the module has `from __future__ import annotations`.
+    Without it the module raises TypeError on import, and Rocky, Alma and
+    RHEL 9 ship Python 3.9 as `python3`. Three modules once lacked it, so
+    nothing ran there at all. The test suite itself needs 3.10, so only a
+    static read catches this.
+    """
+    import ast
+    sources = sorted((ROOT / "lib").rglob("*.py")) + [
+        ROOT / f"{name}.py" for name in ROOT_MODULES]
+
+    def has_union(node):
+        return node is not None and any(
+            isinstance(n, ast.BinOp) and isinstance(n.op, ast.BitOr)
+            for n in ast.walk(node))
+
+    missing = []
+    for path in sources:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        future = any(isinstance(n, ast.ImportFrom) and n.module == "__future__"
+                     and any(a.name == "annotations" for a in n.names)
+                     for n in tree.body)
+        if future:
+            continue
+        for node in ast.walk(tree):
+            annotations = []
+            if isinstance(node, ast.AnnAssign):
+                annotations.append(node.annotation)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                annotations.append(node.returns)
+                args = node.args
+                annotations += [a.annotation for a in
+                                args.posonlyargs + args.args + args.kwonlyargs
+                                + [args.vararg, args.kwarg] if a]
+            if any(has_union(a) for a in annotations):
+                missing.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+                break
+    assert not missing, (
+        "union annotations without `from __future__ import annotations`, "
+        f"which fail to import on Python 3.9: {', '.join(missing)}")

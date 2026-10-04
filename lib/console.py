@@ -42,6 +42,8 @@ reached raised (stdout, exit 1). They share ``_HELP_HINT``, the sentence both
 end on when nothing more specific is known.
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import re
