@@ -182,6 +182,27 @@ _CHAIN_ID_RE = re.compile(r"\.chain_id = (\w+)")
 _MODEL_NAME_RE = re.compile(r'\{\.id = (\w+), \.name = "([^"]+)"\}')
 
 
+def fixup_blocks(src: str) -> list[tuple[str, str]]:
+    """Each ``alc269_fixups[]`` entry in *src* as ``(name, body)``.
+
+    A body runs to the next entry's opening line, and the last one's to the
+    ``};`` closing the array. Running it to the end of the file instead hands
+    the last entry every pin and ``.v.func`` in the quirk tables below: a pin
+    table placed last then fails ``_MAX_PINS`` and its machines drop out
+    without a word.
+    """
+    starts = [(m.group(1), m.start()) for m in _FIXUP_BLOCK_RE.finditer(src)]
+    blocks = []
+    for i, (name, start) in enumerate(starts):
+        if i + 1 < len(starts):
+            end = starts[i + 1][1]
+        else:
+            close = src.find("\n};\n", start)
+            end = close if close != -1 else len(src)
+        blocks.append((name, src[start:end]))
+    return blocks
+
+
 def pin_adding_fixups(src: str,
                       require_helpers: bool = False) -> dict[str, tuple[str, ...]]:
     """``{fixup name: target pin nodes}`` for every pin-adding fixup in *src*.
@@ -209,10 +230,8 @@ def pin_adding_fixups(src: str,
     own: dict[str, tuple[str, ...]] = {}
     chain: dict[str, str] = {}
     seen_helpers: set[str] = set()
-    starts = [(m.group(1), m.start()) for m in _FIXUP_BLOCK_RE.finditer(src)]
-    for i, (name, start) in enumerate(starts):
-        end = starts[i + 1][1] if i + 1 < len(starts) else len(src)
-        body = src[start:end]
+    blocks = fixup_blocks(src)
+    for name, body in blocks:
         target = _CHAIN_ID_RE.search(body)
         if target and _CHAINED_RE.search(body):
             chain[name] = target.group(1)
@@ -248,7 +267,7 @@ def pin_adding_fixups(src: str,
     # `starts` gates it so a source with no fixup table at all — a wrong blob,
     # a failed fetch — still falls through to the size rails and is reported as
     # the parse failure it is, rather than blamed on a rename.
-    if (require_helpers and starts
+    if (require_helpers and blocks
             and (missing := sorted(set(_FUNC_FIXUP_PINS) - seen_helpers))):
         raise ValueError(
             "these fixup helpers are no longer in the kernel source: "

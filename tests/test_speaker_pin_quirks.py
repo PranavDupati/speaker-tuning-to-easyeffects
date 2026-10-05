@@ -185,6 +185,31 @@ def test_pin_adding_fixups_ignores_whole_machine_pin_maps():
     assert pin_adding_fixups(src)["ALC290_FIXUP_SUBWOOFER"] == ("0x17",)
 
 
+def test_the_last_fixup_ends_where_the_fixup_array_does():
+    """Upstream appends new fixups at the end of the array, and the quirk
+    tables below it are full of speaker pincfgs. Read to the end of the file,
+    the last fixup took in hundreds of them, failed _MAX_PINS, and its machine
+    dropped out of the table without a word."""
+    from tools.update_speaker_pin_quirks import pin_adding_fixups
+    src = FIXUP_DEFS + """\
+\t[ALC256_FIXUP_IPASON_SMARTBOOK_S1] = {
+\t\t.type = HDA_FIXUP_PINS,
+\t\t.v.pins = (const struct hda_pintbl[]) {
+\t\t\t{ 0x1b, 0x90170110 },	/* the real internal speaker */
+\t\t\t{ }
+\t\t},
+\t},
+};
+
+static const struct hda_quirk alc269_fixup_tbl[] = {
+\tSND_HDA_PIN_QUIRK(0x10ec0255, 0x1028, "Dell", ALC255_FIXUP_DELL1_MIC_NO_PRESENCE,
+\t\t{0x14, 0x90170110},
+\t\t{0x17, 0x90170112}),
+};
+"""
+    assert pin_adding_fixups(src)["ALC256_FIXUP_IPASON_SMARTBOOK_S1"] == ("0x1b",)
+
+
 def test_a_fixup_delivers_the_pins_its_chain_adds():
     """Upstream extends a machine by wrapping its speaker fixup, not editing
     it: 17aa:390d moved to ..._BASS_SPK_PIN_HEADSET, which adds a headset jack

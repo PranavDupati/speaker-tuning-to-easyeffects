@@ -56,7 +56,6 @@ from update_speaker_pin_quirks import (
     _CHAIN_ID_RE,
     _CHAINED_BEFORE_RE,
     _CHAINED_RE,
-    _FIXUP_BLOCK_RE,
     _FUNC_RE,
     _line_of,
     _MODEL_NAME_RE,
@@ -65,6 +64,7 @@ from update_speaker_pin_quirks import (
     blame_backend,
     fetch_master_sha,
     fetch_source,
+    fixup_blocks,
     release_tags,
     resolve_commits,
     resolve_since,
@@ -159,10 +159,8 @@ def route_fixups(src: str,
     helpers: dict[str, str] = {}
     chain: dict[str, str] = {}
     chain_before: set[str] = set()
-    starts = [(m.group(1), m.start()) for m in _FIXUP_BLOCK_RE.finditer(src)]
-    for i, (name, start) in enumerate(starts):
-        end = starts[i + 1][1] if i + 1 < len(starts) else len(src)
-        body = src[start:end]
+    blocks = fixup_blocks(src)
+    for name, body in blocks:
         target = _CHAIN_ID_RE.search(body)
         if target and _CHAINED_RE.search(body):
             chain[name] = target.group(1)
@@ -214,7 +212,7 @@ def route_fixups(src: str,
     # `starts` gates it so a source with no fixup table at all — a wrong blob,
     # a failed fetch — still falls through to the size rails and is reported as
     # the parse failure it is, rather than blamed on a rename.
-    if (require_helpers and starts
+    if (require_helpers and blocks
             and (missing := sorted(set(_FUNC_FIXUP_ROUTES) - set(helpers.values())))):
         raise ValueError(
             "these fixup helpers are no longer in the kernel source: "
