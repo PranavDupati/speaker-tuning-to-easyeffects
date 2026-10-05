@@ -27,7 +27,7 @@ Copy this checklist and tick items off. Each maps to a section below.
 
 ```
 Triage progress:
-- [ ] 1. Read the commit range — local clone, else one request
+- [ ] 1. Read the commit range — fetch the tags into the local clone
 - [ ] 2. Re-grep every watch term over full messages, zeros included
 - [ ] 3. Read each hit's diff; verify what its message claims
 - [ ] 4. Resolve PCI vs codec SSID for any tested device involved
@@ -42,17 +42,33 @@ The comment already carries the grep hits, a `scan_sound_tag.py` commit scan,
 and the full pull text folded below. It carries no commit *body* or diff, and
 that is what you fetch.
 
-- Prefer the local `torvalds/linux` clone at `~/src/linux`. Pull tags live in
-  tiwai's tree, so a tag published in the last few days may not be merged to
-  mainline yet. Check with `git cat-file -t <sha>` before relying on it, and
-  ask the user to pull if the clone is merely stale.
-- Fallback: one range request, not one per commit.
-  `<mirror>/+log/<base>..<tag>?format=JSON&n=200` returns every commit with
-  its full message in a single call, which is what `tools/scan_sound_tag.py`
-  already does. Per-commit fetches load someone else's mirror for data you can
-  get in one.
-- `git.kernel.org` blocks anonymous fetches, so use the clone or the
-  googlesource mirror.
+- Use the local `torvalds/linux` clone at `~/src/linux`, and fetch the
+  range into it yourself. Pull tags live in tiwai's tree and may not be
+  merged to mainline yet, so the clone carries tiwai's tree as its `sound`
+  remote:
+
+  ```bash
+  git -C ~/src/linux fetch sound \
+    refs/tags/<base>:refs/tags/<base> refs/tags/<tag>:refs/tags/<tag>
+  ```
+
+  It only adds refs and objects, so the working tree and `master` are left
+  alone. Run it in the background: `git.kernel.org` ignores `--filter`, so
+  the range's objects arrive in full. Then `git log`/`grep` over the range is
+  instant, and `git show` fetches any older blob it lacks from `origin`.
+- If the remote is missing, add it once. `git fetch` over HTTPS works on
+  `git.kernel.org`; only its web pages sit behind an anti-bot wall.
+
+  ```bash
+  git -C ~/src/linux remote add sound \
+    https://git.kernel.org/pub/scm/linux/kernel/git/tiwai/sound.git
+  git -C ~/src/linux config remote.sound.tagOpt --no-tags
+  ```
+
+- Use the googlesource HTTP mirror only when git fetch fails, with one range
+  request and not one per commit.
+  `<mirror>/+log/<base>..<tag>?format=JSON&n=10000` returns every commit with
+  its full message, as `tools/scan_sound_tag.py` does.
 
 ## Attribute every hit to its watch before judging it
 
