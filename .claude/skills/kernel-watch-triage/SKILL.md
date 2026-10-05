@@ -191,9 +191,16 @@ have carried it:
 
 - Append the `### Triage (YYYY-MM-DD)` section to the hit comment with
   `gh api -X PATCH repos/<owner>/<repo>/issues/comments/<id> -F body=@file`.
-  It holds the resolved commit(s), impact, action, then the Claude footer.
-  Put per-watch verdicts first, then anything found while checking them. That
-  includes problems the check exposed in our data, which land here too.
+  Keep the visible part short, because the issue accumulates one per tag:
+  1. One bold verdict line.
+  2. Findings that need action or change a watched or tested device, if any.
+     Give each one bullet of a few sentences, with its commit link. This
+     includes problems the check exposed in our own data.
+  3. A table with one row per watch: watch, commit count, and a verdict of
+     about a dozen words. Zero-hit watches can share a row that names each one.
+  4. Everything else in a `<details><summary>Evidence</summary>` block: per-term
+     counts, match paths, the sweep, and the blast-radius checks.
+  5. The Claude footer.
 - Touch `.github/kernel-watchlist.txt` only if the triage opened or closed
   an investigation, in the commit that does so. Don't add a term already
   covered by a broader one in the file: `alc287`
