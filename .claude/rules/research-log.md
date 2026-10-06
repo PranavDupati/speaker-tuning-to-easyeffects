@@ -46,7 +46,8 @@ units. adaptive-processing = leveler, MBC, dialog, surround, MI.
 virtual-bass = VBE and bass enhancer. hardware-and-drivers = kernel, codec,
 pins, amps, firmware. easyeffects-and-pipewire = EasyEffects, PipeWire,
 WirePlumber, Flatpak, paths, rate. measuring-against-windows = capture method,
-metrics, validation bar.
+metrics, validation bar. vendor-apo = a vendor APO layer's parsing, and every
+lever mapped from it, whichever stage it lands in.
 
 A device investigation's heading names the mechanism, and its first line gives
 the issue number.

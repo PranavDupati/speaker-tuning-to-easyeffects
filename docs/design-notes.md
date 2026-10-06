@@ -30,6 +30,7 @@ chain, units and what's not implemented.
 | [loudness-and-limiting.md](research/loudness-and-limiting.md) | `volmax-boost` and its slot, peak normalisation and `--enable level-restore`, the per-band regulator, the brickwall limiter and the PEQ anti-clipping trim |
 | [eq-and-frequency-response.md](research/eq-and-frequency-response.md) | the IEQ and its `ieq-amount` weight, the audio optimizer and its XML units, the PEQ curve, the FIR and its phase |
 | [measuring-against-windows.md](research/measuring-against-windows.md) | the DAX and EasyEffects capture method and stimuli, the validation roadmap and bar, and the follow-ups to close the gap to DAX |
+| [vendor-apo.md](research/vendor-apo.md) | speaker voicing a vendor APO ships beside the DAX3 XML, such as Microsoft's Surface APO, and `--enable vendor-apo` |
 
 This file holds Dolby's signal flow, the plugin chain order, the plugin
 parameter audit with its recorded contradiction, the unvalidated scaling-factor
@@ -358,6 +359,7 @@ re-proposed:
 | #93 | presets written where EasyEffects stopped reading; the locale pin | [easyeffects-and-pipewire.md#r-flatpak-xdg-roots](research/easyeffects-and-pipewire.md#r-flatpak-xdg-roots) |
 | #95 | unlisted machine, firmware mic setting; the EasyEffects crash is at [easyeffects-and-pipewire.md#r-irs-in-place-rewrite](research/easyeffects-and-pipewire.md#r-irs-in-place-rewrite) | [hardware-and-drivers.md#r-fixed-level-speaker-pin](research/hardware-and-drivers.md#r-fixed-level-speaker-pin) |
 | #110 | surges on an ASUS deep-threshold regulator; the class across one ASUS driver package | [loudness-and-limiting.md#r-asus-deep-regulator-thresholds](research/loudness-and-limiting.md#r-asus-deep-regulator-thresholds) |
+| #113 | a DAX3 XML with no voicing in any profile; the Surface APO config that carries it instead | [vendor-apo.md#r-surface-apo-efx](research/vendor-apo.md#r-surface-apo-efx) |
 
 ### Moved sections
 
