@@ -16,7 +16,7 @@ guide to obtaining tuning XMLs.
 device.
 
 > Figures below are from a `tools/corpus_audit.py --composition` run on
-> **2026-08-28**, and are re-derived on their own date. They will not match
+> **2026-10-06**, and are re-derived on their own date. They will not match
 > [cross-device-findings.md](cross-device-findings.md), which freezes its
 > per-parameter figures against a dated cohort. See "Reconciling the counts".
 
@@ -52,20 +52,20 @@ file; the figures count every copy.
 
 | | |
 |---|---|
-| Tuning XMLs | 3641 |
-| Distinct tunings by content | 898 |
-| Distinct filenames | 1048 |
-| Distinct `SUBSYS` device ids | 861 |
-| Profile rows (endpoint × operating mode × profile) | 54055 |
+| Tuning XMLs | 4208 |
+| Distinct tunings by content | 1006 |
+| Distinct filenames | 1155 |
+| Distinct `SUBSYS` device ids | 965 |
+| Profile rows (endpoint × operating mode × profile) | 59708 |
 | Codec ids | 20 |
-| Driver packages | 16 |
+| Driver packages | 20 |
 
 Per-codec counts and everything downstream of them are in
 [cross-device-findings.md](cross-device-findings.md).
 
 One tuning ships to every SKU it fits, in every package that supports that SKU.
-That is the gap between 3641 files and 898 distinct tunings. The most-repeated
-tuning appears 66 times. Only 244 files are the sole copy of their content.
+That is the gap between 4208 files and 1006 distinct tunings. The most-repeated
+tuning appears 66 times. Only 313 files are the sole copy of their content.
 Counting files therefore overstates coverage by roughly 4×. For that reason the
 findings doc counts files, rows and devices separately, rather than quoting one
 number for a prevalence.
@@ -76,11 +76,11 @@ Every file has one of three origins:
 
 | Source | Files | Distinct tunings |
 |---|---|---|
-| A publicly downloadable driver package | 3415 | 893 |
+| A publicly downloadable driver package | 3982 | 1001 |
 | The development machine's Windows partition | 219 | 202 |
 | Attached to a GitHub issue | 7 | 7 |
 
-The rows are disjoint and sum to the 3641 above. A file attached to an issue is
+The rows are disjoint and sum to the 4208 above. A file attached to an issue is
 counted only in that row, never also as a package file.
 
 Anyone willing to pull the same packages can reproduce everything here except
@@ -93,8 +93,9 @@ also ship in one of the public packages below.
 
 Each was downloaded as a self-extracting installer from the vendor's support
 site and unpacked with
-[`innoextract`](https://constexpr.org/innoextract/install). The exception is
-Framework's, a 7-Zip SFX that `7z x` opens. The layout inside varies, so there
+[`innoextract`](https://constexpr.org/innoextract/install). The exceptions are
+Framework's and ASUS's, which `7z x` opens, and Microsoft's Surface `.msi`s,
+which `msiextract` from msitools unpacks. The layout inside varies, so there
 is no fixed path to the tunings: `Source/Dolby/…`, `Source/ThirdParty/…`,
 `Dolby/…`, and Samsung's `APO/Dolby/` with the `.inf` flat beside the tunings.
 The last column records **which download the package came from**, not a claim
@@ -103,6 +104,9 @@ about that model.
 | Dolby package | XMLs | Source download | Downloaded for |
 |---|---|---|---|
 | `dax3_ext_cirrus` | 5 | `BASW-A4285A20_1063.ZIP` | Galaxy Book6 Pro (Samsung, Cirrus SoundWire) |
+| `dax3_ext_dolbyatmos` | 2 | `SurfaceBook3_Win11_22621_25.013.34389.0.msi` | Surface Book 3 |
+| `dax3_ext_dolbyaudiopremium` | 2 | `SurfaceGo3_Win11_22631_26.080.320.0.msi` | Surface Go 3 |
+| `dax3_ext_rtk` | 496 | `SurfacePro9_Win11_22631_26.091.15297.0.msi` and 19 more Surface `.msi`s, one per model | Surface Pro 9 (Intel), issue #113, and the [Surface fleet survey](research/vendor-apo.md#r-surface-apo-fleet) |
 | `ext_22h2_v8.317.1015.13` | 464 | `wplc310fah72yve0.exe` | Yoga Pro 9 14IRP8 |
 | `ext_24h2_v10.307.807.28` | 198 | `wplc2w0fah72yve0.exe` | IdeaPad 3 17ABA7 |
 | `ext_ideapad_AIO_senary_21h2_22h2_v8.920.549.59` | 22 | `rwsa060fjbbg7kf0.exe` | IdeaPad Slim 5x Gen 9 |
@@ -111,6 +115,7 @@ about that model.
 | `ext_lenovo_AIO_rtk_22h2_24h2_25h2_v10.1029.1430.37` | 696 | `kkau100fq18jlle0.exe` | IdeaPad 5x 2-in-1 14 |
 | `ext_lenovo_AIO_rtk_22h2_24h2_v10.725.730.25` | 655 | `14yo037flhg44zg0.exe` | Yoga 7 2-in-1 16AKP10 |
 | `ext_qc_lenovo_thinkpad` | 2 | `n3ha810w.exe` | ThinkPad X13s Gen 1 (Qualcomm Aqstic) |
+| `ext_realtek_asus_consumer` | 67 | `ASUS_Z_V10.123.533.43_16509_2.exe` | Vivobook S14 S5406, issue #110 |
 | `ext_realtek_framework` | 2 | `Framework_Laptop_13_Intel_Core_Ultra_Series3_driver_bundle_W11_v101_2026_06_05.exe` | Framework Laptop 13 Pro (Intel Core Ultra Series 3) |
 | `ext_realtek_lenovo_ideapad` | 60 | `mwy506af40hk90.exe` | Legion Y540-15IRH |
 | `ext_thinkpad_AIO_rtk_19h1_20h1_v6.108.104.39` | 68 | `n2wa126w.exe` | ThinkPad X1 Carbon Gen 8 |
@@ -118,7 +123,7 @@ about that model.
 | `ext_thinkpad_AIO_rtk_22h2_24h2_25h2_v10.1022.826.17` | 243 | `n4kao13w.exe` | ThinkPad X13 Gen 6 |
 | `ext_thinkpad_AIO_rtk_rs5_19h1_v5.204.651.25` | 57 | `r12ar18w.exe` | ThinkPad T495 |
 
-The table sums to 3346. The other 69 files of this source are duplicate copies
+The table sums to 3913. The other 69 files of this source are duplicate copies
 held elsewhere in the working tree, not additional tunings. They are a
 re-organised copy of the X1 Carbon package, and staged copies left by a test
 harness.
@@ -130,8 +135,14 @@ two bus-prefixed spellings of the *same* device. See
 
 Not every audio driver package carries a tuning. ASUS's codec, APO and
 smart-amp downloads carry none, which is why its two entries below arrived
-through issues rather than as a package. Its Dolby extension download does carry
-them: 67 tunings in the one fetched for issue #110.
+through issues. Its Dolby extension download does carry them: the
+`ext_realtek_asus_consumer` row above.
+
+Twelve of the Surface `.msi`s also ship Microsoft's Surface APO configs,
+`SurfaceAPO_*.json`, eleven of them with a speaker chain. They are not counted
+here, since every figure
+on this page counts DAX3 XMLs; `--enable vendor-apo` reads them
+([Surface fleet](research/vendor-apo.md#r-surface-apo-fleet)).
 
 ### The development machine's Windows partition
 
@@ -160,17 +171,20 @@ download for.
 
 ## What it is skewed towards
 
-- **One vendor.** 849 of the 861 device ids carry Lenovo's `17AA`. The other
-  twelve are five Samsung (`144D`) SoundWire endpoints, two Apple (`106B`), two
-  Framework (`F111`, one of the two non-Lenovo *packages*, with Samsung's), two
-  ASUS (`1043`), and one Lenovo Qualcomm entry keyed `IDEA4002`. A finding that
-  holds across the corpus is a finding that holds across *Lenovo's* tuning
-  practice. It is evidence about the DAX3 schema, and much weaker evidence about
-  what other OEMs do with it.
+- **One vendor.** 849 of the 965 device ids carry Lenovo's `17AA`. The other 116
+  are 68 ASUS (`1043`), 38 Microsoft Surface keyed by Realtek's `10EC`, five
+  Samsung (`144D`) SoundWire endpoints, two Apple (`106B`), two Framework
+  (`F111`), and one Lenovo Qualcomm entry keyed `IDEA4002`. Six of the 19
+  packages are non-Lenovo: Samsung's, Framework's, ASUS's and Microsoft's
+  three. A
+  finding that holds across the corpus is a finding that holds across *Lenovo's*
+  tuning practice. It is evidence about the DAX3 schema, and much weaker
+  evidence about what other OEMs do with it.
 - **One endpoint.** Every row is `internal_speaker`. There are no headphone or
   external-output tunings in any package here, so nothing in the findings speaks
   to those.
-- **Breadth by accident, not design.** Fifteen downloads yield 861 device ids.
+- **Breadth by accident, not design.** 38 downloads that carry a tuning yield
+  965 device ids.
   That is because a Lenovo audio package carries the tunings for every SKU it
   supports, not just the machine you downloaded it for. Coverage is therefore
   wide across SKUs and narrow across vendors, kernels, and codec generations.
