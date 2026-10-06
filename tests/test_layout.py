@@ -96,6 +96,9 @@ STDLIB_ONLY = (
     "lib.hardware.codecs",
     "lib.hardware.amps",
     "lib.hardware.speakers",
+    # Vendor APO discovery runs before the generator's deferred DSP imports,
+    # and none of the three modules prints: the run reports what they return.
+    "lib.apo.layer", "lib.apo.surface", "lib.apo.discover",
     # Neither lib.dax module is listed. Both are stdlib-only in the sense the
     # converter's startup cares about — no numpy, no scipy — but both print
     # (discover announces what it matched, parse reports dropped features), so

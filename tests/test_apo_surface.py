@@ -1,0 +1,179 @@
+"""The Surface APO finder and config reader (`lib/apo/surface.py`).
+
+Every package here is synthetic (`tests/conftest.py`
+`write_surface_package`). The binding, the de-interleaving and the
+dynamics mapping are what's under test, not Microsoft's values.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from lib.apo import discover, layer, surface
+from tests.conftest import (surface_apo_json, synthetic_surface_eq,
+                            write_surface_package)
+
+
+@pytest.mark.parametrize("layout", ["msi", "driverstore"])
+@pytest.mark.parametrize("utf16", [False, True])
+def test_finds_the_config_its_inf_binds(tmp_path, layout, utf16):
+    xml = write_surface_package(tmp_path, layout=layout, utf16=utf16)
+    apo = discover.find_for_xml(xml)
+    assert apo is not None
+    assert apo.config_path.name == "SurfaceAPO_TEST.json"
+    assert "DEV_0274&SUBSYS_10EC1284" in apo.hardware_id
+    assert apo.label == "Microsoft Surface APO" and not apo.default_on
+
+
+def test_binding_is_read_from_the_inf_not_the_filename(tmp_path):
+    """A package whose .inf binds another device is ignored, even when its
+    config is named after this one."""
+    xml = write_surface_package(tmp_path, inf_subsys="10EC1282",
+                                config="SurfaceAPO_1284.json")
+    assert discover.find_for_xml(xml) is None
+
+
+def test_a_wrong_device_package_beside_the_right_one_is_ignored(tmp_path):
+    xml = write_surface_package(tmp_path, layout="driverstore",
+                                inf_subsys="10EC1282",
+                                config="SurfaceAPO_OTHER.json",
+                                package_dir="surfaceapoextension.inf_amd64_a")
+    write_surface_package(tmp_path, layout="driverstore",
+                          package_dir="surfaceapoextension.inf_amd64_b")
+    assert discover.find_for_xml(xml).config_path.name == \
+        "SurfaceAPO_TEST.json"
+
+
+def test_the_newest_binding_package_wins(tmp_path):
+    xml = write_surface_package(tmp_path, layout="driverstore",
+                                driver_ver="1.9.0.0", config="old.json",
+                                package_dir="surfaceapoextension.inf_amd64_a")
+    write_surface_package(tmp_path, layout="driverstore",
+                          driver_ver="1.10.0.0", config="new.json",
+                          package_dir="surfaceapoextension.inf_amd64_b")
+    assert discover.find_for_xml(xml).config_path.name == "new.json"
+
+
+def test_no_package_and_soundwire_find_nothing(tmp_path):
+    xml = tmp_path / "DEV_0274_SUBSYS_10EC1284_PCI_SUBSYS_72708086.xml"
+    xml.write_text("<device_data/>")
+    assert discover.find_for_xml(xml) is None
+    sdw = tmp_path / "SOUNDWIRE_MAN_025D_FUNC_1320_SUBSYS_307010EC.xml"
+    sdw.write_text("<device_data/>")
+    assert discover.find_for_xml(sdw) is None
+
+
+def test_main_eq_is_deinterleaved_and_identities_dropped(tmp_path):
+    left = synthetic_surface_eq()
+    right = [left[0], (1.1, -1.5, 0.6, -1.4, 0.5)]
+    coeffs = []
+    for lsec, rsec in zip(left + [(1.0, 0.0, 0.0, 0.0, 0.0)],
+                          right + [(1.0, 0.0, 0.0, 0.0, 0.0)]):
+        coeffs += [*lsec, *rsec]
+    doc = surface_apo_json()
+    efx = doc["entities"][0]["children"][0]["children"]
+    main_eq = next(b for b in efx if b["name"] == "MainEQ")
+    next(p for p in main_eq["children"]
+         if p["name"] == "Coefficients")["value"] = coeffs
+    apo = discover.find_for_xml(
+        write_surface_package(tmp_path, config_json=doc))
+    assert apo.eq_left == tuple(left)
+    assert apo.eq_right == tuple(right)
+
+
+def test_a_44k1_only_config_is_reported_not_skipped(tmp_path):
+    xml = write_surface_package(tmp_path,
+                                config_json=surface_apo_json(fs=44100))
+    with pytest.raises(layer.UnsupportedApoConfig, match="48 kHz"):
+        discover.find_for_xml(xml)
+
+
+def test_a_missing_config_is_reported(tmp_path):
+    xml = write_surface_package(tmp_path)
+    (xml.parent.parent / "surfaceapoextension" / "SurfaceAPO_TEST.json"
+     ).unlink()
+    with pytest.raises(layer.UnsupportedApoConfig, match="missing"):
+        discover.find_for_xml(xml)
+
+
+def test_a_torn_main_eq_is_reported(tmp_path):
+    doc = surface_apo_json()
+    efx = doc["entities"][0]["children"][0]["children"]
+    main_eq = next(b for b in efx if b["name"] == "MainEQ")
+    next(p for p in main_eq["children"]
+         if p["name"] == "Coefficients")["value"] = [1.0] * 7
+    with pytest.raises(layer.UnsupportedApoConfig, match="MainEQ"):
+        discover.find_for_xml(write_surface_package(tmp_path,
+                                                    config_json=doc))
+
+
+def test_drc_maps_pregain_and_merges_inert_bands(tmp_path):
+    apo = discover.find_for_xml(write_surface_package(tmp_path))
+    drc = next(d for d in apo.dynamics if d.name == "drc")
+    # Bands 3 and 4 are ratio 1 with no pregain: one inert band above 800.
+    assert drc.crossovers_hz == (120.0, 800.0)
+    assert [b.enabled for b in drc.bands] == [True, True, False]
+    assert drc.bands[0].threshold_db == -10.0
+    assert drc.bands[0].ratio == 3.0
+    assert drc.bands[0].pregain_db == 2.0
+    assert drc.bands[0].attack_ms == 2.0
+    assert drc.bands[0].release_ms == 30.0
+
+
+def test_drc_uses_the_full_volume_state_and_says_when_states_differ(tmp_path):
+    doc = surface_apo_json()
+    efx = doc["entities"][0]["children"][0]["children"]
+    drc_block = next(b for b in efx if b["name"] == "VolumeDepMBDRC4")
+    thr = next(p for p in drc_block["children"] if p["name"] == "ThresholdDb")
+    thr["value"] = [-10.0, -8.0, 0.0, 0.0] + [-20.0, -8.0, 0.0, 0.0] * 9
+    apo = discover.find_for_xml(write_surface_package(tmp_path,
+                                                      config_json=doc))
+    drc = next(d for d in apo.dynamics if d.name == "drc")
+    assert drc.bands[0].threshold_db == -10.0
+    assert any("full-volume state" in n for n in apo.notes)
+
+
+def test_crystal_bands_bracket_each_resonance(tmp_path):
+    apo = discover.find_for_xml(write_surface_package(tmp_path))
+    crystal = next(d for d in apo.dynamics if d.name == "crystal")
+    # F0 200 (BW 100) and 500 (BW 200): inert below 150, split at the
+    # geometric midpoint sqrt(200·500), inert above 600.
+    assert crystal.crossovers_hz == (150.0, 316.2, 600.0)
+    assert [b.enabled for b in crystal.bands] == [False, True, True, False]
+    assert crystal.bands[1].sidechain_hz == (150.0, 250.0)
+    assert crystal.bands[2].sidechain_hz == (400.0, 600.0)
+    assert [b.threshold_db for b in crystal.bands[1:3]] == [-10.0, -20.0]
+    assert crystal.detection == "Peak"
+
+
+def test_unreproduced_blocks_are_listed(tmp_path):
+    apo = discover.find_for_xml(write_surface_package(tmp_path))
+    text = "\n".join(apo.notes)
+    assert "VolumeDepLS" in text
+    assert "look-ahead" in text
+    assert "VolumeDepMBDRC4: hold" in text
+    assert "Crystal: hold" not in text  # the synthetic Crystal holds 0 ms
+
+
+def test_is_active_follows_the_flags():
+    apo = layer.ApoLayer(label="", config_path=None, inf_path=None,
+                         hardware_id="", sample_rate=48000, eq_left=(),
+                         eq_right=(), dynamics=(), notes=())
+    flag = {layer.FLAG}
+    assert layer.FLAG == "vendor-apo"
+    assert not layer.is_active(None, flag, set())
+    assert not layer.is_active(apo, set(), set())
+    assert layer.is_active(apo, flag, set())
+    on = layer.ApoLayer(**{**apo.__dict__, "default_on": True})
+    assert layer.is_active(on, set(), set())
+    assert not layer.is_active(on, set(), flag)
+
+
+def test_config_json_round_trips_through_the_helper(tmp_path):
+    """Guards the synthetic builder itself: what it writes is JSON."""
+    xml = write_surface_package(tmp_path)
+    cfg = xml.parent.parent / "surfaceapoextension" / "SurfaceAPO_TEST.json"
+    assert json.loads(cfg.read_text())["entities"][0]["name"] == \
+        "InitialValueStore"

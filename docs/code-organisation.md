@@ -275,6 +275,7 @@ subpackage holds one concern:
 - `data/`: machine-written tables, out of hand-edited code
 - `hardware/`: system probing, with no DAX and no DSP
 - `dax/`: everything that reads Dolby XML
+- `apo/`: everything that reads a vendor APO config shipped beside the XML
 - `preset/`: EasyEffects preset construction
 - `report/`: everything the user reads
 - `pipewire/`: the PipeWire side: filter-chain conf emission, install and the

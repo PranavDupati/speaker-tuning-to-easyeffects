@@ -566,3 +566,145 @@ def assert_rows_line_up(lines, gutter):
         assert len(label) + 1 <= gutter - 1, line   # room for one space after
         assert line[gutter] != " ", line
         assert line[gutter - 1] == " ", line
+
+
+# --- Synthetic Microsoft Surface APO package --------------------------------
+# The shape follows a shipped SurfaceAPOExtension.inf and SurfaceAPO_<id>.json.
+# Every value is invented: a 2nd-order 60 Hz high-pass and an RBJ bell for the
+# EQ, round numbers for the dynamics.
+
+def synthetic_surface_eq(fs=48000):
+    """Per-channel (b0,b1,b2,a1,a2) sections: a 60 Hz HPF and a 3 kHz dip."""
+    from scipy.signal import butter
+    hb, ha = butter(2, 60.0, btype="highpass", fs=fs)
+    bb, ba = rbj_bell(3000.0, -6.0, 1.2, fs=fs)
+    return [tuple(float(x) for x in (*hb, *ha[1:])),
+            tuple(float(x) for x in (*bb, *ba[1:]))]
+
+
+def _apo_block(name, fs, **params):
+    fmt = [{"sample_rate": fs, "channel_count": 2, "container_size": 32,
+            "bit_depth": 32, "bit_offset": 0, "data_type": "float",
+            "interleave_type": "channelsinterleaved"}]
+    children = [{"type": "primitive", "id": 9, "name": "InputFormats",
+                 "value": fmt},
+                {"type": "primitive", "id": 9, "name": "OutputFormats",
+                 "value": fmt}]
+    children += [{"type": "primitive", "id": 9, "name": k, "value": v}
+                 for k, v in params.items()]
+    return {"type": "complex", "id": 3, "name": name, "children": children}
+
+
+def surface_apo_json(fs=48000, sections=None, identity_pad=1):
+    """A SurfaceAPO config dict with the shipped R/EFX block set."""
+    sections = synthetic_surface_eq(fs) if sections is None else sections
+    coeffs = []
+    for s in list(sections) + [(1.0, 0.0, 0.0, 0.0, 0.0)] * identity_pad:
+        coeffs += list(s) * 2  # left section, then the same for right
+    states = 10
+    efx = [
+        _apo_block("VolumeControl", fs, Enabled=[True], GainDb=[-128.0, -128.0]),
+        _apo_block("MainEQ", fs, Enabled=[True], Coefficients=coeffs),
+        _apo_block("VolumeDepLS", fs, Enabled=[True],
+                   Coefficients=[1.0, 0.0, 0.0, 0.0, 0.0] * 2 * states),
+        _apo_block("VolumeDepMBDRC4", fs, Enabled=[True],
+                   CrossoverFreqs=[120.0, 800.0, 3000.0],
+                   ThresholdDb=[-10.0, -8.0, 0.0, 0.0] * states,
+                   Ratio=[3.0, 2.0, 1.0, 1.0] * states,
+                   PreGainDb=[2.0, 0.0, 0.0, 0.0] * states,
+                   OutputLimit=[0.0] * 4 * states,
+                   AttackTimeMs=[2.0, 2.0, 2.0, 2.0],
+                   HoldTimeMs=[50.0, 50.0, 50.0, 50.0],
+                   ReleaseTimeMs=[30.0, 30.0, 30.0, 30.0],
+                   LookaheadTimeMs=[0.0] * 4),
+        _apo_block("Crystal", fs, Enabled=[True], F0=[200.0, 500.0],
+                   Bandwidth=[100.0, 200.0], Limit=[-10.0, -20.0],
+                   AttackTimeMs=[1.0, 1.0], HoldTimeMs=[0.0, 0.0],
+                   ReleaseTimeMs=[40.0, 40.0]),
+        _apo_block("OutputLimiter", fs, Enabled=[True], ThresholdDb=[0.0],
+                   LookaheadTimeMs=[5.0]),
+    ]
+    return {"metadata": {"name": "synthetic", "version": "0.0"},
+            "entities": [
+                {"type": "complex", "id": 1, "name": "InitialValueStore",
+                 "children": [{"type": "complex", "id": 2, "name": "R/EFX",
+                               "children": efx}]},
+                {"type": "complex", "id": 4,
+                 "name": "DependentParameterStore", "children": []}]}
+
+
+def surface_apo_inf(subsys="10EC1284", dev="0274", config="SurfaceAPO_TEST.json",
+                    driver_ver="1.0.0.0"):
+    """A SurfaceAPOExtension.inf binding *config* to DEV/SUBSYS."""
+    return f"""\
+; synthetic
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Extension
+DriverVer = 01/01/2026,{driver_ver}
+
+[SourceDisksFiles]
+{config} = 1
+
+[Manufacturer]
+%MfgName% = DeviceExtensions,NTamd64
+
+[DeviceExtensions.NTamd64]
+%Desc% = Install_Test, HDAUDIO\\FUNC_01&VEN_10EC&DEV_{dev}&SUBSYS_{subsys}
+
+[Install_Test.NT]
+AddReg = PresetAddReg, ApoAddReg_Test
+
+[PresetAddReg]
+HKR,InterfaceSetting,PrimaryLineOutTopo,%REG_MULTI_SZ%,"ApoPreset1"
+
+[ApoAddReg_Test]
+HKR,InterfaceSetting\\ApoPreset1\\FX\\0,%PKEY_SurfaceApoConfigFilename%,%REG_SZ%,%13%\\{config} ; the binding
+
+[Strings]
+MfgName = "Surface"
+Desc = "Microsoft Surface APO"
+PKEY_SurfaceApoConfigFilename = "{{c1f75c4c-3243-11ea-850d-2e728ce88125}},0"
+REG_SZ = 0x00000000
+REG_MULTI_SZ = 0x00010000
+"""
+
+
+def write_surface_package(root: Path, *, layout="msi", inf_subsys="10EC1284",
+                          dev="0274", config_json=None, utf16=False,
+                          driver_ver="1.0.0.0", config="SurfaceAPO_TEST.json",
+                          package_dir=None) -> Path:
+    """Write a DAX3 XML beside a Surface APO package; return the XML path.
+
+    The XML always tunes SUBSYS 10EC1284; *inf_subsys* is the device the
+    package's .inf binds, so a different value models a sibling package
+    for another model.
+
+    `layout="msi"` mirrors an extracted MSI (`SurfaceUpdate/dax3extrtk/` +
+    `SurfaceUpdate/surfaceapoextension/`). `"driverstore"` mirrors
+    `FileRepository/<inf>.inf_amd64_<hash>/` wrappers.
+    """
+    import json
+    if layout == "msi":
+        xml_dir, apo_dir = root / "dax3extrtk", root / "surfaceapoextension"
+    else:
+        xml_dir = root / "dax3_ext_rtk.inf_amd64_0123456789abcdef"
+        apo_dir = root / (package_dir or
+                          "surfaceapoextension.inf_amd64_fedcba9876543210")
+    if package_dir and layout == "msi":
+        apo_dir = root / package_dir
+    xml_dir.mkdir(parents=True, exist_ok=True)
+    apo_dir.mkdir(parents=True, exist_ok=True)
+    xml = xml_dir / f"DEV_{dev}_SUBSYS_10EC1284_PCI_SUBSYS_72708086.xml"
+    xml.write_text("<device_data/>")
+    inf_text = surface_apo_inf(subsys=inf_subsys, dev=dev, config=config,
+                               driver_ver=driver_ver)
+    inf = apo_dir / "SurfaceAPOExtension.inf"
+    if utf16:
+        inf.write_bytes(inf_text.encode("utf-16"))
+    else:
+        inf.write_text(inf_text)
+    (apo_dir / config).write_text(
+        json.dumps(config_json if config_json is not None
+                   else surface_apo_json()), encoding="utf-8")
+    return xml
