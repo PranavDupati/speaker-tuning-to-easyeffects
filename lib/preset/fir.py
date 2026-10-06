@@ -55,22 +55,76 @@ def interpolate_curve_db(band_freqs: np.ndarray, band_gains_db: np.ndarray,
 LOG_MAG_FLOOR = 1e-12
 
 
+def biquad_cascade_db(sections, freqs: np.ndarray) -> np.ndarray:
+    """|H| in dB of a biquad cascade at *freqs*, at the pipeline's rate.
+
+    Each section is (b0, b1, b2, a1, a2), with the denominator
+    1 + a1·z⁻¹ + a2·z⁻², the layout a vendor APO config ships.
+    """
+    z1 = np.exp(-2j * np.pi * np.asarray(freqs, dtype=float) / SAMPLE_RATE)
+    h = np.ones_like(z1)
+    for b0, b1, b2, a1, a2 in sections:
+        h *= (b0 + b1 * z1 + b2 * z1 * z1) / (1.0 + a1 * z1 + a2 * z1 * z1)
+    return 20.0 * np.log10(np.abs(h) + LOG_MAG_FLOOR)
+
+
+# How far below its own peak a target folding in a vendor EQ may reach. A
+# high-pass section has a null at DC, and asking the cepstral design for one
+# aliases in time: 14.8 dB of error at 53 Hz on the #113 Surface MainEQ. A
+# smooth floor 40 dB down leaves that fold within 0.32 dB of its target from
+# 20 Hz up. A hard clamp gave 1.0, and floors of 50 or 60 dB did worse at
+# this FIR length. Research `r-surface-apo-efx` has the sweep.
+FIR_TARGET_RANGE_DB = 40.0
+
+
+def design_target_db(band_freqs, gains_db, freqs: np.ndarray,
+                     eq_sections=()) -> np.ndarray:
+    """The dB curve `make_fir` designs from, evaluated at *freqs*.
+
+    The band curve is interpolated as `interpolate_curve_db` does. A vendor
+    EQ, when given, is added exactly at each frequency, then the sum is
+    floored smoothly, in power, `FIR_TARGET_RANGE_DB` below its peak. The
+    peak is always taken over the FFT bins `make_fir` designs on, so a check
+    graded on any other grid sees the floor the filter was designed with.
+    """
+    def unfloored(at):
+        return (interpolate_curve_db(np.array(band_freqs, dtype=float),
+                                     np.array(gains_db, dtype=float),
+                                     np.asarray(at, dtype=float))
+                + (biquad_cascade_db(eq_sections, at) if eq_sections else 0.0))
+    target = unfloored(freqs)
+    if eq_sections:
+        bins = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
+        floor_db = unfloored(bins).max() - FIR_TARGET_RANGE_DB
+        target = 10.0 * np.log10(10.0 ** (target / 10.0) +
+                                 10.0 ** (floor_db / 10.0))
+    return target
+
+
 def make_fir(band_freqs: np.ndarray, gains_db: np.ndarray,
-             normalize: bool = True) -> tuple[np.ndarray, float]:
+             normalize: bool = True,
+             eq_sections=()) -> tuple[np.ndarray, float]:
     """Generate a minimum-phase FIR filter from a target dB curve.
 
     Uses homomorphic processing: the minimum-phase impulse response
     is constructed from the log-magnitude spectrum via the cepstrum.
+    *eq_sections* folds a vendor APO's biquad cascade into the same
+    filter (`design_target_db`). Without it the design is the band curve
+    alone, bit for bit.
     """
     n = FIR_LENGTH
     fft_freqs = np.fft.rfftfreq(n, d=1.0 / SAMPLE_RATE)
 
     # Interpolate target curve to FFT bins
-    gains_at_bins = interpolate_curve_db(
-        np.array(band_freqs, dtype=float),
-        np.array(gains_db, dtype=float),
-        fft_freqs
-    )
+    if eq_sections:
+        gains_at_bins = design_target_db(band_freqs, gains_db, fft_freqs,
+                                         eq_sections)
+    else:
+        gains_at_bins = interpolate_curve_db(
+            np.array(band_freqs, dtype=float),
+            np.array(gains_db, dtype=float),
+            fft_freqs
+        )
 
     # Log magnitude (natural log for cepstral processing)
     log_mag = gains_at_bins * (np.log(10.0) / 20.0)  # dB to ln(linear)

@@ -11,7 +11,10 @@ import pytest
 
 from lib.preset.fir import (
     FIR_LENGTH,
+    FIR_TARGET_RANGE_DB,
     SAMPLE_RATE,
+    biquad_cascade_db,
+    design_target_db,
     interpolate_curve_db,
     make_fir,
 )
@@ -19,6 +22,8 @@ from tests.conftest import (
     SYNTHETIC_FREQS_20,
     fir_freq_response_db,
     is_minimum_phase,
+    rbj_bell,
+    synthetic_surface_eq,
 )
 
 
@@ -194,3 +199,79 @@ def test_make_fir_interband_ripple_bounded():
     assert float(np.max(err_hi)) < 1.0, (
         f"HF inter-band ripple {np.max(err_hi):.2f} dB at "
         f"{f[hi_band][np.argmax(err_hi)]:.0f} Hz")
+
+
+# --- vendor APO EQ fold ---
+
+def _hpf4_and_bells():
+    """A 4th-order 50 Hz high-pass plus a dip and a lift: the shape of a
+    laptop speaker correction, with values invented for the test."""
+    from scipy.signal import butter
+    sos = butter(4, 50.0, btype="highpass", fs=SAMPLE_RATE, output="sos")
+    sections = [tuple(float(x) for x in (*s[:3], *s[4:])) for s in sos]
+    for f0, g, q in ((3500.0, -9.0, 1.0), (11000.0, 4.0, 0.7)):
+        b, a = rbj_bell(f0, g, q)
+        sections.append(tuple(float(x) for x in (*b, *a[1:])))
+    return sections
+
+
+def test_biquad_cascade_db_matches_scipy():
+    from scipy.signal import sosfreqz
+    sections = _hpf4_and_bells()
+    f = np.geomspace(20, 20000, 200)
+    sos = np.array([[b0, b1, b2, 1.0, a1, a2]
+                    for b0, b1, b2, a1, a2 in sections])
+    _, h = sosfreqz(sos, worN=f, fs=SAMPLE_RATE)
+    np.testing.assert_allclose(biquad_cascade_db(sections, f),
+                               20 * np.log10(np.abs(h)), atol=1e-6)
+
+
+def test_make_fir_without_eq_sections_is_bit_identical():
+    gains = [0, 0, -3, -2, 0, 2, 4, 2, 0, -2, -1, 0, 1, 2, 3, 2, 0, 0, 0, 0]
+    plain, peak = make_fir(SYNTHETIC_FREQS_20, gains)
+    folded, folded_peak = make_fir(SYNTHETIC_FREQS_20, gains, eq_sections=())
+    assert np.array_equal(plain, folded) and peak == folded_peak
+
+
+@pytest.mark.parametrize("sections", [_hpf4_and_bells(),
+                                      synthetic_surface_eq()])
+def test_folded_eq_tracks_its_target_between_bins(sections):
+    """The fold's whole risk is between the 11.7 Hz design bins, where a
+    high-pass's DC null aliases. Graded on a dense grid from 20 Hz, shape
+    only, against the floored target the design asks for."""
+    gains = [0.5] * 20
+    fir, _ = make_fir(SYNTHETIC_FREQS_20, gains, eq_sections=sections)
+    n_fft = 8 * FIR_LENGTH
+    f = np.fft.rfftfreq(n_fft, d=1.0 / SAMPLE_RATE)
+    band = (f >= 20.0) & (f <= 20000.0)
+    got = 20 * np.log10(np.abs(np.fft.rfft(fir, n=n_fft))[band] + 1e-12)
+    want = design_target_db(SYNTHETIC_FREQS_20, gains, f[band], sections)
+    err = np.abs((got - got.max()) - (want - want.max()))
+    assert err.max() < 0.5, f"{err.max():.2f} dB at {f[band][err.argmax()]:.0f} Hz"
+
+
+def test_folded_target_floor_sits_range_below_its_peak():
+    sections = _hpf4_and_bells()
+    f = np.geomspace(1, 24000, 4000)
+    t = design_target_db(SYNTHETIC_FREQS_20, [0.0] * 20, f, sections)
+    assert t.min() == pytest.approx(t.max() - FIR_TARGET_RANGE_DB, abs=0.1)
+
+
+def test_folded_target_floor_does_not_depend_on_the_grid():
+    """The correction check grades on band and dense grids; it must see the
+    floor the filter was designed with, set by the peak over the FFT bins,
+    even when its own grid misses that peak (a boost above 20 kHz here)."""
+    b, a = rbj_bell(21000.0, 9.0, 2.0)
+    sections = _hpf4_and_bells() + [tuple(float(x) for x in (*b, *a[1:]))]
+    sub = np.array([20.0, 30.0, 1000.0, 10000.0])
+    bins = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
+    alone = design_target_db(SYNTHETIC_FREQS_20, [0.0] * 20, sub, sections)
+    with_peak = design_target_db(SYNTHETIC_FREQS_20, [0.0] * 20,
+                                 np.concatenate([sub, bins]), sections)
+    np.testing.assert_allclose(alone, with_peak[:len(sub)], atol=1e-9)
+
+
+def test_folded_fir_stays_minimum_phase():
+    fir, _ = make_fir(SYNTHETIC_FREQS_20, [0.0] * 20,
+                      eq_sections=_hpf4_and_bells())
+    assert is_minimum_phase(fir, tol=1e-3)
