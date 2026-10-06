@@ -78,6 +78,21 @@ The files, in its `--out-dir`:
 - `meta.txt`: which pattern each block came from, and the patterns with no
   corpus match. It is orchestrator-only (§2).
 
+Two helper options cover a run whose copy depends on more than the XML:
+
+- `--beside DIR`, repeatable, stages a folder, such as a vendor APO package,
+  next to the XML's package for a run that looks there. Then say in the
+  PERSONA that they copied the tuning file's whole folder and the vendor
+  folder next to it. It stages only inside the sandbox; on a fallback
+  capture, pass an XML that already sits in its real package.
+- `--generator-args "…"` appends flags to both full runs. They are the
+  persona's own command, so add them to the `python3 …` command in the
+  PERSONA given to reviewers A and B. Leave C's and D's PERSONA as it is,
+  since their slices run without them.
+
+Run the helper once per variant into its own `--out-dir`, such as a flag off
+and then on.
+
 Never hand-write or paraphrase samples. Reviewers must see exactly what a
 user sees, wrapping included. To capture something the helper doesn't cover:
 

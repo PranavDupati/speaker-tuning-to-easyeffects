@@ -30,6 +30,19 @@ Writes into --out-dir:
     meta.txt                  orchestrator-only: block↔pattern map, unmatched
                               patterns (never reviewed — say so in the report)
 
+Two options cover a run whose copy depends on more than the XML:
+
+    --beside DIR          a folder the run looks for next to the XML's own
+                          package, staged beside it in the fake home (a
+                          vendor APO package, say: `--beside
+                          …/SurfaceUpdate/surfaceapoextension`). The XML then
+                          sits one level down, in a folder named like its
+                          real one, so the package layout survives staging.
+    --generator-args STR  flags the persona typed, appended to both full
+                          runs (`--generator-args "--enable vendor-apo"`).
+                          They are the reader's own command, so the skill
+                          names them in the persona, not as a harness flag.
+
 Captures run inside a fake-home namespace when the kernel allows it (see
 FAKE_HOME below): the EE run is then REAL — its writes land on a tmpfs and
 vanish — and the wrapper runs with --no-activate, so the only remaining
@@ -46,6 +59,7 @@ import argparse
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -119,8 +133,23 @@ REDACTED_HEADER = ("===== RUN ENDING #{n} (captured on a different laptop "
                    "model) =====")
 
 
+def _stage_entries(xml: Path, beside: list[Path]) -> list[tuple[str, Path]]:
+    """Where the full runs' inputs go under FAKE_XML_DIR, as (rel, source).
+
+    Bare, the XML sits at the top, the way a user who copied one file would
+    put it. With --beside, FAKE_XML_DIR stands for the package root: the XML
+    goes in a folder named like its real one, and each extra folder beside
+    it, so a run that looks next to the XML's package finds them.
+    """
+    if not beside:
+        return [(xml.name, xml)]
+    return ([(f"{xml.parent.name}/{xml.name}", xml)] +
+            [(d.name, d) for d in beside])
+
+
 def _pty_capture(cmd: list[str], width: int, sandbox: bool = False,
-                 stage: list[Path] = ()) -> tuple[str, int]:
+                 stage: list[Path] | list[tuple[str, Path]] = ()
+                 ) -> tuple[str, int]:
     """Run cmd under a pty at the given width; return raw text + rc.
 
     `script -qec` rather than a pipe: piping makes stdout block-buffered and
@@ -130,8 +159,11 @@ def _pty_capture(cmd: list[str], width: int, sandbox: bool = False,
     With ``sandbox=True`` the whole thing runs inside a uid-preserving user namespace (`_UNSHARE`) with the
     fake-home world assembled first (see FAKE_HOME above); ``stage`` names
     real XML files that must appear in FAKE_XML_DIR before cmd runs, and cmd
-    should reference them by their FAKE_XML_DIR paths. The staging copies
-    are made under the repo (``_STAGE_REL``) so the bind mount carries them in.
+    should reference them by their FAKE_XML_DIR paths. An entry may instead be
+    a (relative path, source) pair, and a source may be a folder
+    (`_stage_entries`). The staging copies are made under the repo
+    (``_STAGE_REL``) so the bind mount carries them in; each call stages
+    exactly its own entries.
     """
     # The environment stays intact: the fallback branch runs --dry-run, which
     # gates the end-of-run load into a running EasyEffects off by itself, and
@@ -146,11 +178,16 @@ def _pty_capture(cmd: list[str], width: int, sandbox: bool = False,
         return proc.stdout.decode("utf-8", errors="replace"), proc.returncode
 
     stage_dir = REPO_ROOT / _STAGE_REL
-    stage_dir.mkdir(parents=True, exist_ok=True)
-    for xml in stage:
-        target = stage_dir / xml.name
-        if not target.exists():
-            target.write_bytes(Path(xml).read_bytes())
+    shutil.rmtree(stage_dir, ignore_errors=True)
+    stage_dir.mkdir(parents=True)
+    for entry in stage:
+        rel, src = entry if isinstance(entry, tuple) else (entry.name, entry)
+        target = stage_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if Path(src).is_dir():
+            shutil.copytree(src, target)
+        else:
+            target.write_bytes(Path(src).read_bytes())
     setup = (
         "set -e; "
         # Pin the repo outside /home BEFORE the tmpfs covers it — the repo
@@ -162,8 +199,7 @@ def _pty_capture(cmd: list[str], width: int, sandbox: bool = False,
         f"mkdir -p {FAKE_REPO} {FAKE_XML_DIR}; "
         f"mount --bind /tmp/.user_review_repo {FAKE_REPO}; "
         "umount /tmp/.user_review_repo; "
-        f"cp {FAKE_REPO}/{_STAGE_REL}/*.xml {FAKE_XML_DIR}/ 2>/dev/null"
-        " || true; "
+        f"cp -r {FAKE_REPO}/{_STAGE_REL}/. {FAKE_XML_DIR}/; "
         # /run/user/<uid> is not under the tmpfs, so a real run here would
         # load its preset into the maintainer's live EasyEffects
         # (lib/preset/reload.py). Cover just that socket — blanking
@@ -300,6 +336,13 @@ def main(argv=None) -> int:
     ap.add_argument("--width", type=int, default=80, metavar="COLS",
                     help="terminal width to capture at — 80 is what most "
                          "users see (default: 80)")
+    ap.add_argument("--beside", type=Path, action="append", default=[],
+                    metavar="DIR",
+                    help="a folder to stage next to the XML's own package "
+                         "folder, for a run that looks there (repeatable)")
+    ap.add_argument("--generator-args", default="", metavar="STR",
+                    help="flags appended to both full runs, as the persona "
+                         "typed them, e.g. \"--enable vendor-apo\"")
     ap.add_argument("--no-sandbox", action="store_true",
                     help="skip the fake-home namespace even if available; "
                          "captures then show real harness paths and use "
@@ -309,6 +352,12 @@ def main(argv=None) -> int:
     xml = args.xml.resolve()
     if not xml.is_file():
         ap.error(f"not a file: {xml}")
+    beside = [d.resolve() for d in args.beside]
+    for d in beside:
+        if not d.is_dir():
+            ap.error(f"--beside: not a folder: {d}")
+    extra = shlex.split(args.generator_args)
+    stage = _stage_entries(xml, beside)
     out_dir = args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -321,32 +370,31 @@ def main(argv=None) -> int:
         print("note: unprivileged user namespace unavailable — falling back "
               "to real-path --dry-run captures (the skill must disclose "
               "both)", file=sys.stderr)
-    stage_dir = REPO_ROOT / _STAGE_REL
-    if stage_dir.exists():
-        for old in stage_dir.glob("*.xml"):
-            old.unlink()
-
     if sandbox:
         # A real EE run: writes land on the namespace tmpfs, so no --dry-run
         # and no disclosure — reviewers finally see the real closing, which
         # is what most actual users read. The wrapper still can't run for
         # real (it restarts PipeWire); --no-activate writes real confs into
         # the fake home and prints the genuine to-finish steps.
-        xml_arg = f"{FAKE_XML_DIR}/{xml.name}"
-        ee_cmd = [py, "dolby_to_easyeffects.py", xml_arg]
-        pw_cmd = [py, "dolby_to_pipewire.py", xml_arg, "--no-activate"]
+        xml_arg = f"{FAKE_XML_DIR}/{stage[0][0]}"
+        ee_cmd = [py, "dolby_to_easyeffects.py", xml_arg, *extra]
+        pw_cmd = [py, "dolby_to_pipewire.py", xml_arg, "--no-activate",
+                  *extra]
         pv_stage = {p.name: p for ps in _preview_matches().values()
                     for p in ps}
         pv_cmd = [py, "tools/preview_output.py", "--width", str(args.width),
                   "--corpus-dir", FAKE_XML_DIR]
     else:
-        ee_cmd = [py, "dolby_to_easyeffects.py", str(xml), "--dry-run"]
-        pw_cmd = [py, "dolby_to_pipewire.py", str(xml), "--dry-run"]
+        # Real paths: anything --beside names is already where the run
+        # looks, or the run would not find it on the real machine either.
+        ee_cmd = [py, "dolby_to_easyeffects.py", str(xml), "--dry-run",
+                  *extra]
+        pw_cmd = [py, "dolby_to_pipewire.py", str(xml), "--dry-run", *extra]
         pv_stage = {}
         pv_cmd = [py, "tools/preview_output.py", "--width", str(args.width)]
 
     raw_ee, rc = _pty_capture(ee_cmd, args.width, sandbox=sandbox,
-                              stage=[xml])
+                              stage=stage)
     if rc != 0:
         failed.append(f"dolby_to_easyeffects.py exited {rc}")
     ee, ee_ann = _plain(raw_ee), _annotate(raw_ee)
@@ -358,7 +406,7 @@ def main(argv=None) -> int:
     written.append(_write(out_dir / "slice_ee_tail26.color.txt", tail_ann))
 
     raw_pw, rc = _pty_capture(pw_cmd, args.width, sandbox=sandbox,
-                              stage=[xml])
+                              stage=stage)
     if rc != 0:
         failed.append(f"dolby_to_pipewire.py exited {rc}")
     written.append(_write(out_dir / "cap_pw_full.txt", _plain(raw_pw)))
@@ -409,6 +457,9 @@ def main(argv=None) -> int:
     meta = ["Orchestrator-only — never hand this file to a reviewer.",
             "",
             f"full-run XML: {xml}",
+            f"staged beside it: {', '.join(map(str, beside)) or '(none)'}",
+            f"generator args (name them in the persona): "
+            f"{shlex.join(extra) or '(none)'}",
             mode,
             "",
             "slice_preview_blocks.txt block map:"]
