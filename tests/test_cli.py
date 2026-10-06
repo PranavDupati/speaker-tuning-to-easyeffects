@@ -58,6 +58,7 @@ from lib.report.messages import (
 )
 from tests.conftest import (
     SYNTHETIC_FREQS_20,
+    synthetic_apo_layer,
     synthetic_mb_comp,
     synthetic_peq_filters,
     synthetic_regulator,
@@ -212,7 +213,7 @@ def test_enable_choices_match_documented_set():
     """Mirror of the --disable sanity check: --enable's argparse choices
     ARE ENABLEABLE_FILTERS."""
     assert set(ENABLEABLE_FILTERS) == {"autogain", "level-restore",
-                                       "virtual-bass"}
+                                       "virtual-bass", "vendor-apo"}
 
 
 def test_enable_virtual_bass_embeds_and_points_at_pipewire(tmp_path,
@@ -2376,6 +2377,8 @@ def _every_finding():
         report_findings._reload_refused_finding("Dolby-Balanced", "Podcast", True),
         report_findings._reload_unanswered_finding("Dolby-Balanced"),
         report_findings._ee_bypassed_finding(),
+        report_profile._vendor_apo_not_reproduced_finding(
+            synthetic_apo_layer()),
     ]
     return [f for f in found if f is not None]
 

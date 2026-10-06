@@ -60,20 +60,27 @@ PIPEWIRE_RESTART_CMD = "systemctl --user restart pipewire pipewire-pulse"
 
 
 def _assert_positional(plugins_order: list[str]) -> None:
-    """Lock the dialog/PEQ and MBC/regulator disambiguation contracts.
+    """Lock the dialog/PEQ and multiband-compressor disambiguation contracts.
 
     Both `equalizer#0` (PEQ) and `equalizer#1` (dialog) are emitted by
     `dolby_to_easyeffects.py` with the same dict shape. Only their
     position in `plugins_order` distinguishes them. The same is true of
-    `multiband_compressor#0` (MBC) and `multiband_compressor#1`
-    (regulator). If a change reordered either pair, the converter's
-    mapping would silently swap roles, so this raises instead.
+    `multiband_compressor#0` (MBC), `#1` (regulator) and `#2`/`#3` (a
+    vendor APO layer, which runs after Dolby). If a change reordered any
+    pair, the converter's mapping would silently swap roles, so this raises
+    instead.
     """
     # Real raises, not bare asserts, so the contract survives `python -O`.
     for first, role1, second, role2 in (
             ("equalizer#0", "PEQ", "equalizer#1", "dialog"),
             ("multiband_compressor#0", "MBC",
-             "multiband_compressor#1", "regulator")):
+             "multiband_compressor#1", "regulator"),
+            ("multiband_compressor#1", "regulator",
+             "multiband_compressor#2", "vendor APO"),
+            ("multiband_compressor#0", "MBC",
+             "multiband_compressor#2", "vendor APO"),
+            ("multiband_compressor#2", "vendor APO",
+             "multiband_compressor#3", "vendor APO")):
         if first in plugins_order and second in plugins_order \
                 and plugins_order.index(first) >= plugins_order.index(second):
             raise ValueError(

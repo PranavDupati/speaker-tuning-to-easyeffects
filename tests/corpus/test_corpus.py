@@ -108,7 +108,10 @@ def _one_per_distinct_file(paths: list[Path]) -> list[Path]:
     return kept
 
 
-CORPUS = _one_per_distinct_file(_discover_corpus())
+# Every discovered path, before de-duplication: test_vendor_apo_corpus.py
+# needs each copy's location, and one walk per worker is the expensive part.
+DISCOVERED = _discover_corpus()
+CORPUS = _one_per_distinct_file(DISCOVERED)
 _EXPLICIT = "ATMOS_CORPUS_DIR" in os.environ
 
 

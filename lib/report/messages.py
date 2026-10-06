@@ -137,6 +137,12 @@ ENABLEABLE_FILTERS = {
     "virtual-bass": ("bass feels thinner than it did on Windows",
                      "experimental; only the PipeWire chain plays it "
                      "(issue #14)"),
+    # Offered only where a vendor APO config binds the device
+    # (lib/apo/discover.py), so the trigger can name what it adds.
+    "vendor-apo": ("it sounds flat next to Windows, and the run found "
+                   "vendor speaker tuning",
+                   "experimental and untested; tell us if it sounds closer "
+                   "to Windows (issue #113)"),
 }
 
 # Emission paths that are numerically verified but not yet user-validated
@@ -185,6 +191,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                    declared_default: str | None = None,
                    declared_default_preset: str = "",
                    virtual_bass_pw: bool = False,
+                   vendor_apo: str = "",
+                   vendor_apo_off: str = "",
                    reloaded: str = "",
                    loaded: str = "",
                    reload_slug: str = "",
@@ -247,6 +255,17 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                   "can't play — these presets only record its values; "
                   "dolby_to_pipewire.py builds it into a PipeWire chain "
                   "instead.")
+    # The one place a Done-stopper learns --enable vendor-apo took effect, or
+    # that a found vendor tuning was left out: the report section saying so
+    # has scrolled off by now, and so has the hint's ask (vendor-apo review,
+    # rounds 1 and 2). Same class as the autogain note: a guaranteed
+    # difference from Windows the reader can fix with one flag.
+    apo_note = (f"  {'These would include' if dry_run else 'They include'} "
+                f"the {vendor_apo} speaker tuning (--enable vendor-apo)."
+                if vendor_apo else
+                f"  Not included: the {vendor_apo_off} speaker tuning found "
+                "beside the Dolby file — --enable vendor-apo adds it "
+                "(experimental, untested)." if vendor_apo_off else "")
     # The mismatch echo mirrors the autogain-note pattern (round 10): without
     # it the most actionable fix in the run lives only at the top and in the
     # ask small-print, never on the screen people act from.
@@ -319,6 +338,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
             console._cprint_wrapped("dim", autogain_note, indent="  ")
         if virtual_bass_pw:
             console._cprint_wrapped("dim", vbass_note, indent="  ")
+        if apo_note:
+            console._cprint_wrapped("dim", apo_note, indent="  ")
         return
     # "starting in": each preset is two files and only the .json lands in
     # output_dir. The .irs impulse response goes to --irs-dir, a different
@@ -375,6 +396,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         console._cprint_wrapped("dim", autogain_note, indent="  ")
     if virtual_bass_pw:
         console._cprint_wrapped("dim", vbass_note, indent="  ")
+    if apo_note:
+        console._cprint_wrapped("dim", apo_note, indent="  ")
     # The one-line map back to the menu (round 7): with the Done block
     # grown, the symptom→flag menu scrolls off a 26-line screen and the
     # reader said they'd never think to scroll. The pointer puts the

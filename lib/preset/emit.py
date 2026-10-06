@@ -40,6 +40,7 @@ import numpy as np
 from scipy.io import wavfile
 
 from lib import console, doctor, ee_paths
+from lib.apo import layer as apo_layer
 from lib.dax import parse
 from lib.preset import autoload, build, fir
 from lib.report import messages
@@ -185,8 +186,15 @@ def _drop_stale_impulses(irs_dir: Path, preset_name: str, keep: Path,
 FIR_VERIFY_OK_DB = 0.5
 
 
+# A vendor EQ's shape lives between the XML's 20 bands (a high-pass corner, a
+# narrow dip), so a fold is also graded on this many times the design bins,
+# across the audible band.
+DENSE_CHECK_OVERSAMPLE = 8
+DENSE_CHECK_HZ = (20.0, 20000.0)
+
+
 def _worst_shape_error(taps, combined, offset_db, freqs, fft_freqs, *,
-                       rows: bool) -> float:
+                       rows: bool, eq_sections=()) -> float:
     """Worst |deviation| in dB between one built channel and its curve.
 
     The curve is the one the channel was asked for, probed at the XML's own
@@ -195,33 +203,68 @@ def _worst_shape_error(taps, combined, offset_db, freqs, fft_freqs, *,
     make_fir normalises, and level-restore hands that back downstream. Saying
     "matches the curve" without "the shape of" would claim a level match the
     check never makes.
+
+    With a vendor EQ folded in (*eq_sections*), the curve is
+    `fir.design_target_db`, and it is graded on a dense grid as well.
     """
     H = np.fft.rfft(taps, n=fir.FIR_LENGTH)
     mag_db = 20.0 * np.log10(np.abs(H) + fir.LOG_MAG_FLOOR)
-    peak = np.max(combined)
+    if eq_sections:
+        peak = fir.design_target_db(freqs, combined, fft_freqs,
+                                    eq_sections).max()
+        at_bands = fir.design_target_db(freqs, combined,
+                                        np.asarray(freqs, dtype=float),
+                                        eq_sections)
+    else:
+        peak = np.max(combined)
+        at_bands = combined
+    if eq_sections:
+        # Read at the band frequency itself. The nearest 11.7 Hz design bin
+        # is close enough on a 20-band curve, but on a high-pass slope that
+        # offset alone moves the reading by about a dB.
+        n = np.arange(len(taps))
+        actual = np.array([20.0 * np.log10(abs(np.dot(
+            taps, np.exp(-2j * np.pi * f * n / fir.SAMPLE_RATE)))
+            + fir.LOG_MAG_FLOOR) for f in freqs])
+    else:
+        actual = np.array([mag_db[np.argmin(np.abs(fft_freqs - f))]
+                           for f in freqs])
     worst = 0.0
     for i, f in enumerate(freqs):
-        idx = np.argmin(np.abs(fft_freqs - f))
-        target = combined[i] - peak + offset_db
-        err = mag_db[idx] - target
+        target = at_bands[i] - peak + offset_db
+        err = actual[i] - target
         worst = max(worst, abs(err))
         if rows:
             console.cprint("dim", f"  {f:>7} Hz  target: {target:+6.1f}  "
-                           f"actual: {mag_db[idx]:+6.1f}  "
+                           f"actual: {actual[i]:+6.1f}  "
                            f"error: {err:+5.2f}")
+    if eq_sections:
+        n = DENSE_CHECK_OVERSAMPLE * fir.FIR_LENGTH
+        dense = np.fft.rfftfreq(n, d=1.0 / fir.SAMPLE_RATE)
+        lo, hi = DENSE_CHECK_HZ
+        band = (dense >= lo) & (dense <= hi)
+        got = 20.0 * np.log10(np.abs(np.fft.rfft(taps, n=n))[band]
+                              + fir.LOG_MAG_FLOOR)
+        want = fir.design_target_db(freqs, combined, dense[band],
+                                    eq_sections) - peak + offset_db
+        worst = max(worst, float(np.max(np.abs(got - want))))
     return worst
 
 
 def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                       profile_label, all_preset_names, filters_by_profile,
-                      kernel_by_preset, warned: bool = False):
+                      kernel_by_preset, warned: bool = False, apo=None):
     """Generate the Balanced/Detailed/Warm IEQ presets for one parsed profile.
 
     Builds each combined FIR, writes the .irs + .json, prints the
     verification table, and records emitted filters. Mutates
     ``all_preset_names``, ``filters_by_profile`` and ``kernel_by_preset``
     (preset name → the impulse's stem) in place. main() passes three fields
-    of its ``RunTally`` and reads them back off it after the loop."""
+    of its ``RunTally`` and reads them back off it after the loop.
+
+    ``apo`` is the vendor APO layer bound to this device, if any. When the
+    run's flags switch it on, its EQ is folded into each FIR; `make_preset`
+    places its dynamics."""
     curves = tuning.curves
     peq_filters = tuning.peq_filters
     vol_leveler = tuning.vol_leveler
@@ -247,6 +290,18 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
     ieq_presets = {f"{name_base}-{label}": key
                    for label, key in messages.VOICING_CURVES.items()}
 
+    apo_on = apo_layer.is_active(apo, set(args.enable), disabled)
+    # Which curve the correction check grades: with a vendor EQ folded in,
+    # the target is both files', floored (fir.design_target_db).
+    asked = ("your tuning file and the vendor tuning ask for"
+             if apo_on and (apo.eq_left or apo.eq_right)
+             else "your tuning file asks for")
+    eq_left = apo.eq_left if apo_on else ()
+    eq_right = apo.eq_right if apo_on else ()
+    if apo_on:
+        apo_db_left = fir.biquad_cascade_db(eq_left,
+                                            np.asarray(freqs, dtype=float))
+
     # One hidden-tables hint per profile, at the spot the first table would
     # have occupied. Three identical lines read as a nag.
     tables_hint_pending = not args.verbose
@@ -271,9 +326,11 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
         # list; make_fir casts both of its curve arguments to float itself,
         # so there is nothing to convert on the way in.
         fir_left, peak_left_db = fir.make_fir(freqs, combined_left,
-                                              normalize=True)
+                                              normalize=True,
+                                              eq_sections=eq_left)
         fir_right, peak_right_db = fir.make_fir(freqs, combined_right,
-                                                normalize=True)
+                                                normalize=True,
+                                                eq_sections=eq_right)
 
         # --enable level-restore: hand the chain back the level normalisation
         # removed. make_fir divides each channel by its own realised peak, so
@@ -317,7 +374,8 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                                       fir_peak_db=fir_peak_db,
                                       enabled=set(args.enable),
                                       disabled=disabled,
-                                      virtual_bass=tuning.virtual_bass)
+                                      virtual_bass=tuning.virtual_bass,
+                                      apo=apo)
         for name in emitted:
             filters_by_profile.setdefault(name, set()).add(profile_label)
         out_path = args.output_dir / f"{preset_name}.json"
@@ -348,7 +406,17 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
         # Their only reader is someone diagnosing a wrong-sounding preset,
         # who is told to re-run with -v. The verdict line below prints either
         # way, so the check itself is never hidden.
-        if args.verbose:
+        if args.verbose and apo_on:
+            # The APO column is the vendor EQ at the band frequency only;
+            # its shape between bands is graded by the dense check below.
+            print(f"  {curve_key} combined IEQ+AO+APO curve (left channel):")
+            print(f"  {'freq':>8}  {'IEQ':>6}  {'AO':>6}  {'APO':>6}  "
+                  f"{'combined':>8}")
+            for i, f in enumerate(freqs):
+                print(f"  {f:>7} Hz  {ieq_db[i]:+5.1f}  {ao_db_left[i]:+5.1f}"
+                      f"  {apo_db_left[i]:+5.1f}  "
+                      f"{combined_left[i] + apo_db_left[i]:+7.1f}")
+        elif args.verbose:
             print(f"  {curve_key} combined IEQ+AO curve (left channel):")
             print(f"  {'freq':>8}  {'IEQ':>6}  {'AO':>6}  {'combined':>8}")
             for i, f in enumerate(freqs):
@@ -366,14 +434,15 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                           "peak=0):")
         worst_left = _worst_shape_error(fir_left, combined_left,
                                         left_offset_db, freqs, fft_freqs,
-                                        rows=args.verbose)
+                                        rows=args.verbose,
+                                        eq_sections=eq_left)
         # The right channel carries its own audio-optimizer curve, so a fault
         # can live there alone, so grade it too. The rows stay left-only,
         # because the table is already sixty lines. The verbose verdict names
         # both figures, so neither side is graded behind the reader's back.
         worst_right = _worst_shape_error(fir_right, combined_right,
                                          right_offset_db, freqs, fft_freqs,
-                                         rows=False)
+                                         rows=False, eq_sections=eq_right)
         worst = max(worst_left, worst_right)
         # A table of sixty "error" rows with no verdict reads as a slow
         # drift going wrong, and nobody outside this file knows 0.03 dB is a
@@ -395,14 +464,14 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
             # certifies.
             if worst <= FIR_VERIFY_OK_DB:
                 console.cprint("ok", f"  Correction check passed: the built filter "
-                             f"matches the shape of the curve your tuning "
-                             f"file asks for, within {worst:.2f} dB "
+                             f"matches the shape of the curve {asked}, "
+                             f"within {worst:.2f} dB "
                              f"(left {worst_left:.2f}, "
                              f"right {worst_right:.2f})")
             else:
                 console.cprint("warn", f"  Correction check: {worst:.2f} dB away from "
-                               "the shape of the curve your tuning file asks "
-                               f"for, at worst (left {worst_left:.2f}, "
+                               f"the shape of the curve {asked}, at worst "
+                               f"(left {worst_left:.2f}, "
                                f"right {worst_right:.2f}) — unexpected, "
                                "please report this run")
         print()
@@ -417,11 +486,11 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
             console.cprint("dim" if warned else "ok",
                    f"  Correction check passed: all "
                    f"{len(check_results)} filters match the shape of the curve "
-                   f"your tuning file asks for, within {worst_all:.2f} dB")
+                   f"{asked}, within {worst_all:.2f} dB")
         else:
             for name, w in fails:
                 console.cprint("warn", f"  Correction check ({name}): {w:.2f} dB away "
-                               "from the shape of the curve your tuning file "
-                               "asks for, at worst — unexpected, please "
+                               f"from the shape of the curve {asked}, at "
+                               "worst — unexpected, please "
                                "report this run")
         print()

@@ -59,10 +59,12 @@ class ApoLayer:
     """What one vendor APO config adds to the preset.
 
     `default_on` decides whether `FLAG` reaches it through `--enable` or
-    `--disable` (`is_active`). It is per layer, because each format earns its
-    default separately. `notes` lists the config's blocks that the
-    layer does not reproduce. The run prints them, so a listener knows what
-    is missing.
+    `--disable` (`is_active`); the latter needs FLAG added to
+    DISABLEABLE_FILTERS first, since argparse rejects it until then. It is per layer, because each format earns its
+    default separately. `notes` lists what the layer does not
+    reproduce, each in a listener's words with the vendor block's name in
+    parentheses for triage. The run prints them, so a listener comparing
+    with Windows knows what is missing.
     """
     label: str
     config_path: Path

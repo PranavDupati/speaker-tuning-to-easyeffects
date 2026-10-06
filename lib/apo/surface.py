@@ -1,8 +1,9 @@
 """Microsoft Surface APO: find the config bound to this device and read it.
 
-Surface packages ship the speaker voicing in `SurfaceAPO_<id>.json`, not in
-the DAX3 XML beside it. On #113's Surface Pro 9 the XML carries no voicing in
-any profile. `SurfaceAPOExtension.inf` binds the JSON to one HD-Audio
+The Surface Pro 9 (Intel) package ships its speaker voicing in
+`SurfaceAPO_1284.json`, not in the DAX3 XML beside it. That XML switches off its
+audio-optimizer, IEQ and graphic EQ in every profile (#113). Other Surface models
+are unread. `SurfaceAPOExtension.inf` binds the JSON to one HD-Audio
 hardware ID. The speaker's Realtek driver runs it as the mode and endpoint
 effects (MFX, EFX), after Dolby's stream effect (SFX). Research `r-surface-apo-efx` holds the evidence and
 the open questions for each mapping below.
@@ -15,12 +16,10 @@ Only the `R/EFX` chain is read:
 
 - `MainEQ` is a biquad cascade. It becomes the layer's EQ, which
   `lib/preset/` folds into the FIR.
-- `VolumeDepMBDRC4` becomes a multiband compressor, at its first volume
-  state.
+- `VolumeDepMBDRC4` becomes a multiband compressor, at volume state 0.
 - `Crystal` becomes a multiband limiter, with one band per resonance.
 - The `VolumeDep` shelves, hold times, per-band output limits and the
-  `OutputLimiter`'s look-ahead are not reproduced. They are listed in
-  `ApoLayer.notes`.
+  `OutputLimiter` are not reproduced. They are listed in `ApoLayer.notes`.
 
 Stdlib-only, like `lib/apo/layer.py`.
 """
@@ -223,8 +222,10 @@ def _driver_version(inf: Path) -> tuple[int, ...]:
 # The only rate the shipped R/EFX chain is defined at, and the pipeline's.
 _SAMPLE_RATE = 48000
 
-# The DRC's tables carry one row per volume state. State 0 is full volume,
-# the only state a filter placed before the speaker's volume control sees.
+# The DRC's tables carry one row per volume state. State 0 reads as full
+# volume (unvalidated): ValueTable steps down from -2.75 dB and the low shelf
+# rises with the state. Full volume is the only state a filter placed before
+# the speaker's volume control sees.
 _VOLUME_STATE = 0
 
 _DRC_BANDS = 4
@@ -233,16 +234,30 @@ _DRC_BANDS = 4
 def parse_config(config: Path, inf: Path, hwid: str) -> ApoLayer:
     """Read a Surface APO JSON's R/EFX chain into an `ApoLayer`."""
     try:
-        doc = json.loads(config.read_text(encoding="utf-8-sig"))
-        chain = _efx_chain(doc)
-    except (OSError, ValueError, KeyError, TypeError, IndexError) as e:
-        raise UnsupportedApoConfig(config, f"unreadable ({e})") from e
+        text = config.read_text(encoding="utf-8-sig")
+    except OSError as e:
+        raise UnsupportedApoConfig(config, f"it can't be read ({e})") from e
+    try:
+        chain = _efx_chain(json.loads(text))
+    except (ValueError, KeyError, TypeError, IndexError,
+            StopIteration) as e:
+        raise UnsupportedApoConfig(
+            config, f"its contents don't parse ({e or 'no InitialValueStore'})"
+        ) from e
     if chain is None:
         raise UnsupportedApoConfig(
             config, f"no {_SAMPLE_RATE // 1000} kHz R/EFX render chain")
 
     notes: list[str] = []
     eq_left, eq_right = _main_eq(config, chain.get("MainEQ"))
+    # Hold times: neither LSP stage has one, so every block's go into one note.
+    held = [n for n in ("VolumeDepMBDRC4", "Crystal")
+            if _enabled(chain.get(n))
+            and any(h for h in chain[n].get("HoldTimeMs", []))]
+    if held:
+        notes.append("how long its dynamics hold before letting go, which "
+                     "the compressor stage used has no setting for "
+                     f"({'/'.join(held)} hold times)")
     dynamics = []
     drc = chain.get("VolumeDepMBDRC4")
     if _enabled(drc):
@@ -250,16 +265,27 @@ def parse_config(config: Path, inf: Path, hwid: str) -> ApoLayer:
     crystal = chain.get("Crystal")
     if _enabled(crystal):
         dynamics.append(_crystal(config, crystal, notes))
-    for name in ("VolumeDepLS", "VolumeDepHS"):
-        if _enabled(chain.get(name)):
-            notes.append(f"{name}: volume-dependent shelf, not reproduced "
-                         "(no Linux filter sees the speaker's volume)")
+    shelves = [n for n in ("VolumeDepLS", "VolumeDepHS")
+               if _enabled(chain.get(n))]
+    if shelves:
+        notes.append("the bass and treble shelves Windows sets by volume, "
+                     "since neither chain this tool builds sees the "
+                     f"speaker's volume ({'/'.join(shelves)})")
     limiter = chain.get("OutputLimiter")
-    if _enabled(limiter) and _first(limiter, "LookaheadTimeMs", 0.0) > 0:
-        notes.append(
-            f"OutputLimiter: {_first(limiter, 'LookaheadTimeMs', 0.0):g} ms "
-            "look-ahead not adopted (it would add latency); the chain's "
-            "own limiter stays last")
+    if _enabled(limiter):
+        lookahead = _first(limiter, "LookaheadTimeMs", 0.0)
+        acts = (_first(limiter, "Ratio", 1.0) != 1.0
+                or _first(limiter, "ThresholdDb", 0.0) < 0.0)
+        if acts:
+            notes.append(
+                "its final limiter (threshold "
+                f"{_first(limiter, 'ThresholdDb', 0.0):g} dB, ratio "
+                f"{_first(limiter, 'Ratio', 1.0):g}), which the preset's own "
+                "limiter replaces (OutputLimiter)")
+        elif lookahead > 0:
+            notes.append(
+                f"its final limiter's {lookahead:g} ms look-ahead, left out "
+                "so the chain adds no delay (OutputLimiter)")
     return ApoLayer(
         label=LABEL, config_path=config, inf_path=inf,
         hardware_id=hwid, sample_rate=_SAMPLE_RATE,
@@ -325,9 +351,10 @@ def _state_row(config: Path, block: dict, key: str, notes: list[str],
             f"multiple of {_DRC_BANDS} bands")
     rows = [values[i:i + _DRC_BANDS]
             for i in range(0, len(values), _DRC_BANDS)]
-    if any(r != rows[0] for r in rows) and name not in "".join(notes):
-        notes.append(f"{name}: per-volume-state settings differ; using the "
-                     "full-volume state")
+    states_note = ("its compressor's settings for other volume states; "
+                   f"state 0, read as full volume, is used ({name})")
+    if any(r != rows[0] for r in rows) and states_note not in notes:
+        notes.append(states_note)
     return rows[_VOLUME_STATE]
 
 
@@ -336,8 +363,8 @@ def _drc(config: Path, block: dict, notes: list[str]) -> BandDynamics:
 
     PreGain boosts a band before its compressor. The LSP equivalent is the
     same gain on the detector (sidechain preamp) and on the output (makeup).
-    A band with ratio 1 and no pregain does nothing, so its split is merged
-    into the band below.
+    A band with ratio 1 and no pregain does nothing. When the band below it
+    is inert too, the two pass audio alike, so their split is dropped.
     """
     name = "VolumeDepMBDRC4"
     xovers = [float(f) for f in block["CrossoverFreqs"]]
@@ -364,11 +391,8 @@ def _drc(config: Path, block: dict, notes: list[str]) -> BandDynamics:
         if i:
             splits.append(xovers[i - 1])
         bands.append(band)
-    if any(h for h in block.get("HoldTimeMs", [])):
-        notes.append(f"{name}: hold times not reproduced (the compressor "
-                     "has no hold stage)")
     if any(v != 0.0 for v in limit):
-        notes.append(f"{name}: per-band OutputLimit not reproduced")
+        notes.append(f"its compressor's per-band output limits ({name})")
     return BandDynamics(name="drc", crossovers_hz=tuple(splits),
                         bands=tuple(bands), detection="RMS", knee_db=0.0)
 
@@ -409,9 +433,6 @@ def _crystal(config: Path, block: dict, notes: list[str]) -> BandDynamics:
                       sidechain_hz=(lows[i], highs[i]))
               for i in range(n)] +
              [inert])
-    if any(h for h in block.get("HoldTimeMs", [])):
-        notes.append(f"{name}: hold times not reproduced (the limiter has "
-                     "no hold stage)")
     return BandDynamics(name="crystal",
                         crossovers_hz=tuple(round(s, 1) for s in splits),
                         bands=tuple(bands), detection="Peak", knee_db=0.0)

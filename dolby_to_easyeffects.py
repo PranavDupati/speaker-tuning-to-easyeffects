@@ -30,6 +30,9 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from lib import console, doctor, ee_paths, ee_socket, packages
+# Aliased: `discover` is the DAX3 one, read far more often in this file.
+from lib.apo import discover as apo_discover
+from lib.apo import layer as apo_layer
 from lib.dax import discover, parse
 from lib.hardware import speakers
 # Aliased: _configure_autoload binds a local named `sinks` for the resolver's
@@ -264,7 +267,9 @@ def add_filter_tweak_args(container, *, only=None):
              "than Windows (issue #25). Try the experimental --enable "
              "level-restore if audio is quieter with the preset than without "
              "it (issue #50). virtual-bass is experimental and plays only in "
-             "the PipeWire chain (issue #14). When the tuning has a volume "
+             "the PipeWire chain (issue #14). vendor-apo is experimental and "
+             "adds speaker tuning a vendor ships beside the Dolby file, where "
+             "the run finds some (issue #113). When the tuning has a volume "
              "leveler, autogain ships off on HDA and on for SoundWire. "
              "--disable autogain removes it either way.",
     )
@@ -694,6 +699,20 @@ def main(argv: list[str] | None = None,
     if args.dry_run:
         console.cprint("head", "Dry run: no files will be written to disk.")
 
+    # A vendor APO config bound to this device (lib/apo/). Looked up once:
+    # it belongs to the device, not to a profile. One the device binds but
+    # this tool can't read is said here and left out, so the Dolby-only
+    # presets still get built.
+    apo_unusable = False
+    try:
+        apo = apo_discover.find_for_xml(Path(xml_path))
+    except apo_layer.UnsupportedApoConfig as exc:
+        apo, apo_unusable = None, True
+        console._cprint_wrapped("warn", f"Vendor speaker tuning at "
+                                f"{doctor.tilde(exc.path)} binds this device "
+                                f"but can't be used: {exc.reason}. Building "
+                                "from the Dolby file alone.")
+
     # Determine which profiles to process
     if args.all_profiles:
         profile_types = parse.get_profile_types(xml_path, args.endpoint, args.mode)
@@ -838,6 +857,9 @@ def main(argv: list[str] | None = None,
     # returns False, and retrying would re-probe the EasyEffects version once
     # per profile.
     hide_attempted = False
+    # The vendor layer's section belongs to the device: printed with the
+    # first profile only (lib/report/profile.py _print_apo_layer).
+    apo_shown = False
 
     for profile_type in profile_types:
         profile_label = profile_type or "default"
@@ -890,7 +912,9 @@ def main(argv: list[str] | None = None,
         profile_findings = report_profile._report_parsed_profile(
             tuning, disabled,
             args.volmax_slot, enabled=set(args.enable),
-            is_soundwire=is_soundwire, verbose=args.verbose)
+            is_soundwire=is_soundwire, verbose=args.verbose, apo=apo,
+            apo_shown=apo_shown)
+        apo_shown = True
 
         for finding in [*tuning.findings, *profile_findings]:
             tally.findings.setdefault(finding.slug, finding)
@@ -906,7 +930,8 @@ def main(argv: list[str] | None = None,
                                # reads as cancelling a warning (round 9).
                                warned=any(f.kind == "hint"
                                           for f in [*tuning.findings,
-                                                    *profile_findings]))
+                                                    *profile_findings]),
+                               apo=apo)
 
         # The closing block, ~120 lines down, wants two scalars off `tuning`.
         # Bound here rather than read off the loop variable down there, so
@@ -1012,6 +1037,13 @@ def main(argv: list[str] | None = None,
                                         "effect: this XML has no usable "
                                         "virtual-bass block to derive the "
                                         "stage from. The preset is unchanged.")
+    # An unusable config already said so where it was found.
+    if apo_layer.FLAG in args.enable and apo is None and not apo_unusable:
+        print()
+        console._cprint_wrapped("warn", f"--enable {apo_layer.FLAG} had no "
+                                "effect: no vendor speaker tuning this tool "
+                                "reads binds this device beside the Dolby "
+                                "file. The preset is unchanged.")
     if ("coupled-bands" in disabled
             and "coupled-bands-dropped" not in tally.filters_by_profile):
         print()
@@ -1169,6 +1201,13 @@ def main(argv: list[str] | None = None,
                        declared_default_preset=tally.declared_default_preset,
                        virtual_bass_pw=("virtual-bass-active"
                                         in tally.filters_by_profile),
+                       vendor_apo=(apo.label if apo is not None
+                                   and f"{apo_layer.FLAG}-active"
+                                   in tally.filters_by_profile else ""),
+                       vendor_apo_off=(apo.label if apo is not None
+                                       and not apo_layer.is_active(
+                                           apo, set(args.enable), disabled)
+                                       else ""),
                        reloaded=reloaded.playing,
                        loaded=reloaded.loaded,
                        reload_slug=(reloaded.finding.slug

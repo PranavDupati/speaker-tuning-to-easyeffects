@@ -41,6 +41,7 @@ from tests.conftest import (
     synthetic_mb_comp,
     synthetic_peq_filters,
     synthetic_regulator,
+    synthetic_apo_layer,
     synthetic_virtual_bass,
     write_synthetic_tuning_xml,
 )
@@ -171,6 +172,15 @@ SCENARIOS = {
                                  enabled={"virtual-bass"}),
     "virtual-bass-available-but-off": _base(
         virtual_bass=synthetic_virtual_bass()),
+    # --enable vendor-apo adds the layer's dynamics after the regulator; the
+    # flagless run must equal full-chain. Without a regulator, the volmax
+    # boost moves from the limiter onto the layer's first stage.
+    "enable-vendor-apo": _base(apo=synthetic_apo_layer(),
+                               enabled={"vendor-apo"}),
+    "vendor-apo-available-but-off": _base(apo=synthetic_apo_layer()),
+    "enable-vendor-apo-no-regulator": _base(apo=synthetic_apo_layer(),
+                                            regulator=None, volmax_boost=9.0,
+                                            enabled={"vendor-apo"}),
     "disable-volmax": _base(volmax_boost=9.0, disabled={"volmax"}),
     "disable-dynamics": _base(disabled={"mbc", "regulator"}),
     "disable-peq-shapes": _base(peq_filters=_PEQ_MIXED,
@@ -305,6 +315,9 @@ def test_flags_do_what_their_names_say(digests):
             == digests["defaults-only-with-volmax"])
     assert (digests["enable-level-restore"]
             != digests["level-restore-available-but-off"])
+    # A vendor APO layer found but not enabled must change nothing.
+    assert digests["vendor-apo-available-but-off"] == digests["full-chain"]
+    assert digests["enable-vendor-apo"] != digests["full-chain"]
 
 
 def test_digest_ignores_the_generator_version():

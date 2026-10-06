@@ -132,7 +132,7 @@ def test_drc_uses_the_full_volume_state_and_says_when_states_differ(tmp_path):
                                                       config_json=doc))
     drc = next(d for d in apo.dynamics if d.name == "drc")
     assert drc.bands[0].threshold_db == -10.0
-    assert any("full-volume state" in n for n in apo.notes)
+    assert any("state 0, read as full volume, is used" in n for n in apo.notes)
 
 
 def test_crystal_bands_bracket_each_resonance(tmp_path):
@@ -151,10 +151,9 @@ def test_crystal_bands_bracket_each_resonance(tmp_path):
 def test_unreproduced_blocks_are_listed(tmp_path):
     apo = discover.find_for_xml(write_surface_package(tmp_path))
     text = "\n".join(apo.notes)
-    assert "VolumeDepLS" in text
+    assert "(VolumeDepLS)" in text
     assert "look-ahead" in text
-    assert "VolumeDepMBDRC4: hold" in text
-    assert "Crystal: hold" not in text  # the synthetic Crystal holds 0 ms
+    assert "(VolumeDepMBDRC4 hold times)" in text  # Crystal holds 0 ms here
 
 
 def test_is_active_follows_the_flags():
@@ -177,3 +176,22 @@ def test_config_json_round_trips_through_the_helper(tmp_path):
     cfg = xml.parent.parent / "surfaceapoextension" / "SurfaceAPO_TEST.json"
     assert json.loads(cfg.read_text())["entities"][0]["name"] == \
         "InitialValueStore"
+
+
+def test_a_config_without_its_value_store_is_reported(tmp_path):
+    """A JSON missing InitialValueStore must surface as unusable, not crash
+    the run."""
+    xml = write_surface_package(tmp_path, config_json={"entities": []})
+    with pytest.raises(layer.UnsupportedApoConfig, match="don't parse"):
+        discover.find_for_xml(xml)
+
+
+def test_an_active_output_limiter_is_listed_as_replaced(tmp_path):
+    doc = surface_apo_json()
+    efx = doc["entities"][0]["children"][0]["children"]
+    lim = next(b for b in efx if b["name"] == "OutputLimiter")
+    next(p for p in lim["children"] if p["name"] == "ThresholdDb")[
+        "value"] = [-3.0]
+    apo = discover.find_for_xml(write_surface_package(tmp_path,
+                                                      config_json=doc))
+    assert any("preset's own limiter replaces" in n for n in apo.notes)

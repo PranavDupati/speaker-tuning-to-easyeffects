@@ -38,7 +38,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from lib import console
+from lib import console, doctor
+from lib.apo import layer as apo_layer
 from lib.dax import parse
 from lib.preset import fir, plugins
 from lib.report import findings as report_findings
@@ -100,7 +101,18 @@ def _print_voicing(tuning):
                                    "the speaker correction"), indent="  ")
 
 
-def _print_audio_optimizer(tuning, ao_db_left, ao_db_right, verbose):
+def register(f):
+    """A listener's word for where a frequency sits.
+
+    Printed beside each Hz value: the numbers alone don't say whether the
+    deepest cut lands in bass or treble (round 6), and that is the one
+    thing a listener can check by ear.
+    """
+    return "bass" if f < 250 else "midrange" if f <= 4000 else "treble"
+
+
+def _print_audio_optimizer(tuning, ao_db_left, ao_db_right, verbose,
+                           apo_on=False):
     freqs = tuning.freqs
     # Audio-optimizer: one triage-grade line by default: deepest cut/boost
     # with its frequency, and channel symmetry, which is what a pasted
@@ -110,20 +122,19 @@ def _print_audio_optimizer(tuning, ao_db_left, ao_db_right, verbose):
     ao_l, ao_r = np.asarray(ao_db_left), np.asarray(ao_db_right)
     if not tuning.ao_enabled:
         print("\nAudio-optimizer: switched off in this profile")
-        console.cprint("warn", "  audio-optimizer-enable=0 — the correction curve "
+        # Dim, not warn, under an applied vendor layer: its EQ does the
+        # correction job here, so nothing is missing (vendor-apo review).
+        console.cprint("dim" if apo_on else "warn",
+                       "  audio-optimizer-enable=0 — the correction curve "
                        "this profile ships is not applied; only the IEQ "
-                       "voicing reaches the convolver here.")
+                       + ("voicing and the vendor speaker EQ below reach "
+                          "the convolver here." if apo_on else
+                          "voicing reaches the convolver here."))
     else:
         parts = []
         cut = float(min(ao_l.min(), ao_r.min()))
         boost = float(max(ao_l.max(), ao_r.max()))
 
-        # A register word beside each Hz value: the numbers alone don't say
-        # whether the deepest cut lands in bass or treble (round 6), and
-        # that is the one thing a listener can check by ear.
-        def register(f):
-            return ("bass" if f < 250
-                    else "midrange" if f <= 4000 else "treble")
 
         if cut < 0:
             f_cut = freqs[int(np.argmin(np.minimum(ao_l, ao_r)))]
@@ -147,6 +158,121 @@ def _print_audio_optimizer(tuning, ao_db_left, ao_db_right, verbose):
     if verbose:
         print(f"  Left:  {[f'{x:+.1f}' for x in ao_db_left]}")
         print(f"  Right: {[f'{x:+.1f}' for x in ao_db_right]}")
+
+
+def _print_apo_layer(apo, apo_on: bool, verbose: bool,
+                     shown: bool = False) -> list[Finding]:
+    """The vendor APO layer bound to this device: what it adds, or that it
+    is there to add.
+
+    Off, it names the file and the flag that applies it; the Done block
+    repeats that on the last screen. It is not a hint: an untested stage is
+    not a fix for anything the reader heard (copy audit). On, each stage is
+    one sentence in a listener's words, its numbers behind -v, then a
+    detail-only finding for what the layer leaves out.
+
+    The layer belongs to the device, not to a profile, so under
+    --all-profiles the section prints once: *shown* returns its finding,
+    still raised in every profile, without printing it again.
+    """
+    if apo is None:
+        return []
+    if shown:
+        finding = (_vendor_apo_not_reproduced_finding(apo) if apo_on
+                   else None)
+        return [finding] if finding else []
+    where = doctor.tilde(apo.config_path)
+    if not apo_on:
+        print(f"\nVendor speaker tuning: {apo.label} ({where})")
+        console._cprint_wrapped(
+            "", "  Not applied. This device's speaker is also tuned outside "
+            f"the Dolby file, and --enable {apo_layer.FLAG} adds that tuning "
+            "on top (experimental and untested, issue #113).", indent="    ")
+        return []
+    print(f"\nVendor speaker tuning: {apo.label} ({where}), applied")
+    if apo.eq_left or apo.eq_right:
+        f = np.geomspace(20.0, 20000.0, 400)
+        db = np.minimum(fir.biquad_cascade_db(apo.eq_left, f),
+                        fir.biquad_cascade_db(apo.eq_right, f))
+        parts = []
+        if db[0] < -6.0:
+            corner = f[int(np.argmax(db >= -6.0))]
+            parts.append(f"cuts the deep bass below {corner:.0f} Hz")
+        cut_i = int(np.argmin(np.where(f >= 100.0, db, np.inf)))
+        if db[cut_i] < -0.5:
+            parts.append(f"cuts to {db[cut_i]:+.1f} dB at {f[cut_i]:.0f} Hz "
+                         f"({register(f[cut_i])})")
+        boost_i = int(np.argmax(db))
+        if db[boost_i] > 0.5:
+            parts.append(f"boosts to {db[boost_i]:+.1f} dB at "
+                         f"{f[boost_i]:.0f} Hz ({register(f[boost_i])})")
+        if not parts:
+            # Nothing above caught it: a shallow bass cut, say.
+            span = float(np.max(np.abs(db)))
+            parts.append("within ±0.5 dB" if span <= 0.5
+                         else f"shapes it by up to {span:.1f} dB")
+        console._cprint_wrapped("", "  Tone: " + ", ".join(parts),
+                                indent="    ")
+    for stage in apo.dynamics:
+        live = [(i, b) for i, b in enumerate(stage.bands) if b.enabled]
+        if not live:
+            continue
+        edges = (0.0,) + tuple(stage.crossovers_hz) + (None,)
+        if stage.name == "crystal":
+            lo = min(b.sidechain_hz[0] for _, b in live)
+            hi = max(b.sidechain_hz[1] for _, b in live)
+            console._cprint_wrapped(
+                "", f"  Resonance limiter: holds {len(live)} narrow bands "
+                f"between {lo:.0f} and {hi:.0f} Hz down when they get loud",
+                indent="    ")
+            detail = [f"{b.sidechain_hz[0]:.0f}–{b.sidechain_hz[1]:.0f} Hz "
+                      f"at {b.threshold_db:+.1f} dB" for _, b in live]
+        else:
+            bottom = edges[live[0][0]]
+            top = edges[live[-1][0] + 1]
+            if bottom and top:
+                span = f"{bottom:.0f}–{top:.0f} Hz"
+            elif top:
+                span = ("the bass" if top <= 250
+                        else f"everything below {top:.0f} Hz")
+            else:
+                span = (f"everything above {bottom:.0f} Hz" if bottom
+                        else "everything")
+            lifts = {b.pregain_db for _, b in live if b.pregain_db > 0}
+            what = (f"lifts {span} by {'up to ' if len(lifts) > 1 else ''}"
+                    f"{max(lifts):+g} dB and compresses it when loud"
+                    if lifts else f"compresses {span} when loud")
+            console._cprint_wrapped("", f"  Compressor: {what}",
+                                    indent="    ")
+            detail = []
+            for i, b in live:
+                hi = edges[i + 1]
+                band = (f"{edges[i]:.0f}–{hi:.0f} Hz" if hi
+                        else f"above {edges[i]:.0f} Hz")
+                detail.append(f"{band} {b.ratio:g}:1 above "
+                              f"{b.threshold_db:+g} dB"
+                              + (f" after {b.pregain_db:+g} dB"
+                                 if b.pregain_db else ""))
+        if verbose:
+            console._cprint_wrapped("dim", "    " + "; ".join(detail),
+                                    indent="    ")
+    finding = _vendor_apo_not_reproduced_finding(apo)
+    if finding is None:
+        return []
+    _print_finding_detail(finding)
+    return [finding]
+
+
+def _vendor_apo_not_reproduced_finding(apo) -> Finding | None:
+    """What an applied vendor layer leaves out, for a listener comparing it
+    with Windows. Detail only: nothing on this machine can add it."""
+    if not apo.notes:
+        return None
+    return Finding(
+        slug="vendor-apo-not-reproduced",
+        detail=f"The rest of the {apo.label} tuning is in the presets. Left "
+               "out: " + "; ".join(apo.notes) + ". Nothing to do.",
+        kind="ask")
 
 
 def _print_peq(tuning, verbose):
@@ -549,7 +675,8 @@ def _print_regulator(tuning, disabled, verbose):
                 print(f"  isolated_band:       {iso}")
 
 
-def _print_volmax(tuning, disabled, volmax_slot, verbose):
+def _print_volmax(tuning, disabled, volmax_slot, verbose,
+                  apo_stage_first=False):
     volmax_boost = tuning.volmax_boost
     regulator = tuning.regulator
     # Glossed like every other stage; the gain-slot detail is -v only.
@@ -577,8 +704,13 @@ def _print_volmax(tuning, disabled, volmax_slot, verbose):
         # row says "--disable volmax" and the reader had to spot the
         # substring match to connect the two (round 5).
         if verbose:
+            # Mirrors make_preset: with no regulator, an applied vendor APO
+            # layer's first stage carries it, ahead of that layer as on
+            # Windows; failing both, the limiter.
             slot = (f"regulator {volmax_slot}"
                     if regulator and "regulator" not in disabled
+                    else "first vendor APO stage input-gain"
+                    if apo_stage_first
                     else "limiter input-gain")
             tail = f"(applied as {slot}; --disable volmax turns it off)"
         else:
@@ -657,7 +789,8 @@ def _boost_findings(tuning, ao_db_left, ao_db_right, disabled, enabled):
 
 
 def _report_parsed_profile(tuning, disabled, volmax_slot="input-gain",
-                           enabled=None, is_soundwire=False, verbose=False):
+                           enabled=None, is_soundwire=False, verbose=False,
+                           apo=None, apo_shown=False):
     """Print the human-readable per-profile diagnostics for a parsed tuning
     (audio-optimizer / PEQ / dialog / surround / leveler / MBC / regulator /
     volmax), and return the findings raised while doing so.
@@ -680,8 +813,11 @@ def _report_parsed_profile(tuning, disabled, volmax_slot="input-gain",
                                                  tuning.profile_used))
         _print_finding_detail(findings[-1])
 
+    apo_on = apo_layer.is_active(apo, set(enabled or ()), set(disabled))
     _print_voicing(tuning)
-    _print_audio_optimizer(tuning, ao_db_left, ao_db_right, verbose)
+    _print_audio_optimizer(tuning, ao_db_left, ao_db_right, verbose,
+                           apo_on and bool(apo.eq_left or apo.eq_right))
+    findings += _print_apo_layer(apo, apo_on, verbose, shown=apo_shown)
     _print_peq(tuning, verbose)
     _print_bass_enhancer(tuning, disabled, is_soundwire)
     _print_dialog(tuning, disabled)
@@ -689,7 +825,8 @@ def _report_parsed_profile(tuning, disabled, volmax_slot="input-gain",
     _print_leveler(tuning, disabled, enabled, is_soundwire)
     _print_mbc(tuning, disabled, verbose)
     _print_regulator(tuning, disabled, verbose)
-    _print_volmax(tuning, disabled, volmax_slot, verbose)
+    _print_volmax(tuning, disabled, volmax_slot, verbose,
+                  apo_stage_first=apo_on and bool(apo.dynamics))
     findings += _boost_findings(tuning, ao_db_left, ao_db_right,
                                 disabled, enabled)
     print()

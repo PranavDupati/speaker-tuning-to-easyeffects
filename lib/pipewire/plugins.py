@@ -334,8 +334,8 @@ def emit_peq(plugin: dict, name: str) -> Stage | None:
 def emit_mb_compressor(plugin: dict, name: str) -> Stage | None:
     """LSP mb_compressor_stereo node.
 
-    Used for both `multiband_compressor#0` (the MBC) and
-    `multiband_compressor#1` (the regulator). Identical shape on the EE
+    Used for `multiband_compressor#0` (the MBC), `#1` (the regulator) and
+    `#2`/`#3` (a vendor APO layer's stages). Identical shape on the EE
     side, identical mapping here.
     """
     # Defensive: build_chain handles bypass; kept for direct unit-test calls.
@@ -659,6 +659,10 @@ EE_KEY_DISPATCH: dict[str, PluginHandler] = {
     "equalizer#1":            PluginHandler(emit_peq, ("dialog",)),
     "multiband_compressor#0": PluginHandler(emit_mb_compressor, ("mbc",)),
     "multiband_compressor#1": PluginHandler(emit_mb_compressor, ("reg",)),
+    # A vendor APO layer's dynamics, after Dolby's (lib/apo/layer.py). Same
+    # EE plugin, so the same translation; only the node name differs.
+    "multiband_compressor#2": PluginHandler(emit_mb_compressor, ("apo0",)),
+    "multiband_compressor#3": PluginHandler(emit_mb_compressor, ("apo1",)),
     "limiter#0":              PluginHandler(emit_limiter),
     "bass_enhancer#0":        PluginHandler(emit_bass_enhancer, ("bass",)),
     "stereo_tools#0":         PluginHandler(emit_stereo_tools, ("stereo",)),

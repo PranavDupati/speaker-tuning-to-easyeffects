@@ -94,6 +94,21 @@ the bass enhancer is SoundWire-only.
 | 7 | Regulator | `regulator-tuning` (+ `volmax-boost`) | Per-band limiter, a 2nd MBC instance. `volmax-boost` defaults to its `input-gain` slot: ≈+6 dB, pre-band-limiting. The opt-out `--volmax-slot output-gain` moves the boost post-band-limiting; see below |
 | 8 | Limiter | — (+ `volmax-boost` fallback) | Brickwall at -1 dBFS, the safety net. Fallback slot for `volmax-boost` when the regulator isn't emitted |
 
+With `--enable vendor-apo` and a vendor APO config bound to the device, up to
+two more multiband compressors (`#2`, `#3`), one per dynamics block the config
+enables, sit between the regulator and the limiter. The vendor EQ is folded into
+the convolver's FIR. With no regulator, the `volmax-boost` moves from the
+limiter onto the first of them. On the PipeWire chain, `--enable virtual-bass`
+sums its branch after all of this, so its harmonics skip the vendor layer.
+Microsoft's Surface APO is the one format read:
+
+| Surface APO block | Becomes |
+|---|---|
+| `MainEQ` biquads | Folded into the FIR, its target floored 40 dB under its peak |
+| `VolumeDepMBDRC4` | `multiband_compressor#2`, at volume state 0, read (unvalidated) as full volume |
+| `Crystal` | `multiband_compressor#3`, one limiter band per resonance |
+| `VolumeDepLS/HS`, hold times, `OutputLimiter` | Not reproduced; the run lists them |
+
 - **Convolver.** With its loudest band at 0 dB, the stage only ever
   attenuates, and a curve whose peak exceeds `volmax-boost` emits a preset
   quieter than bypass. `--enable level-restore` gives that level back; see
@@ -378,6 +393,13 @@ default-off for two reasons: it was scored on one device only, and the two
 saturator constants are measurement-calibrated rather than XML-derived
 ([DAX virtual-bass finding](research/virtual-bass.md#r-dax-virtual-bass), issue
 [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14)).
+
+Unvalidated, opt-in, `--enable vendor-apo`: every Surface APO mapping. That
+covers the biquad layout and sign convention, the DRC's pregain and full-volume
+state, and the Crystal-to-limiter-band reading, the weakest of them. No Windows
+capture exists for any Surface device
+([Surface APO finding](research/vendor-apo.md#r-surface-apo-efx), issue
+[#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113)).
 
 Unvalidated, and knowingly so, `isolated_band`: a zone whose `threshold_high` is
 0 dBFS and whose bands are all marked non-isolated joins the limiter at full

@@ -12,6 +12,11 @@ static volmax boost (and `--enable level-restore`'s giveback) is injected
 into. Both are measured trade-offs rather than XML fields; the evidence is in
 research `r-volmax-boost-slot` and `r-level-restore`.
 
+A vendor APO layer (`lib/apo/`) adds its dynamics after Dolby's, the order
+Windows runs them in; only the PipeWire chain's virtual-bass branch, summed
+after everything, escapes it. Its EQ is not a stage here: `lib/preset/emit.py` folds it
+into the convolver's FIR.
+
 Imports `plugins.py`, so it reaches numpy too and stays behind the generator's
 function-local imports for it.
 
@@ -21,6 +26,7 @@ their arguments, with no state a patch would have to reach.
 
 from __future__ import annotations
 
+from lib.apo import layer as apo_layer
 from lib.dax import parse
 from lib.preset import autoload
 from lib.preset.bands import make_convolver, make_peq_eq
@@ -28,6 +34,7 @@ from lib.preset.plugins import (
     _coupled_bands_eligible,
     bass_enhancer_from_peq,
     make_autogain,
+    make_band_dynamics,
     make_dialog_enhancer,
     make_limiter,
     make_multiband_compressor,
@@ -66,7 +73,9 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
                 fir_peak_db: float = 0.0,
                 enabled: set[str] | None = None,
                 disabled: set[str] | None = None,
-                virtual_bass: dict | None = None) -> tuple[dict, set[str]]:
+                virtual_bass: dict | None = None,
+                apo: apo_layer.ApoLayer | None = None
+                ) -> tuple[dict, set[str]]:
     """Build a preset dict.
 
     Returns (preset, emitted) where emitted is the set of flag-actionable
@@ -229,6 +238,33 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
         # a preset that plays quieter than bypass. Below it there is nothing
         # to restore and the menu stays quiet.
         emitted.add("level-restore")
+
+    # A vendor APO layer's dynamics run after Dolby's on Windows (research
+    # `r-surface-apo-efx`), so they follow the regulator here. With no
+    # regulator to carry it, the static boost moves from the limiter onto the
+    # first of them, which keeps it ahead of them as Dolby's volmax is.
+    if apo is not None:
+        if len(apo.dynamics) > 2:
+            raise ValueError(f"{apo.label}: {len(apo.dynamics)} dynamics "
+                             "stages; multiband_compressor#2/#3 carry two")
+        active = apo_layer.is_active(apo, enabled, disabled)
+        if active:
+            for i, stage in enumerate(apo.dynamics):
+                key = f"multiband_compressor#{2 + i}"
+                preset["output"][key] = make_band_dynamics(
+                    stage, input_gain=limiter_boost if i == 0 else 0.0)
+                preset["output"]["plugins_order"].append(key)
+            if apo.dynamics:
+                limiter_boost = 0.0
+        if apo.default_on:
+            if active:
+                emitted.add(apo_layer.FLAG)
+        elif active:
+            # Marker, not an --enable candidate; same contract as
+            # autogain-active.
+            emitted.add(f"{apo_layer.FLAG}-active")
+        else:
+            emitted.add(apo_layer.FLAG)  # actionable via --enable on a rerun
 
     # Brickwall limiter at the end as a safety net
     preset["output"]["limiter#0"] = make_limiter(input_gain=limiter_boost)

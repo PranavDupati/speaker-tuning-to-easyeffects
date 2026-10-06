@@ -622,6 +622,81 @@ def bass_enhancer_scope_is_derived(peq_filters: list[dict]) -> bool:
     return any(f["type"] in (7, 9) for f in peq_filters)
 
 
+def make_band_dynamics(stage, input_gain: float = 0.0) -> dict:
+    """A vendor APO layer's multiband dynamics stage as an LSP MBC.
+
+    *stage* is a `lib.apo.layer.BandDynamics`; its parser has already turned
+    the vendor's fields into thresholds, ratios and times. The keys and
+    their order match `make_multiband_compressor`, since EasyEffects reads
+    both the same way.
+
+    - The look-ahead is 0: the zero-added-latency rule (`dsp-fir.md`).
+    - A band's pregain lands on its detector and its makeup alike, which
+      is compressing the band after boosting it.
+    - A narrowed sidechain is the custom low/high-cut pair. That is how a
+      resonance limiter's overlapping detection bands ride contiguous
+      splits.
+
+    *input_gain* carries Dolby's static boost, and `--enable level-restore`'s
+    giveback, when no regulator can, so they still precede this stage as on
+    Windows.
+    """
+    result = {
+        "bypass": False,
+        "input-gain": round(input_gain, 1),
+        "output-gain": 0.0,
+        "dry": -80.01,
+        "wet": 0.0,
+        "compressor-mode": "Modern",
+        "envelope-boost": "None",
+        "stereo-split": False,
+    }
+    edges = (10.0,) + tuple(stage.crossovers_hz) + (20000.0,)
+    for i in range(8):
+        bandn = f"band{i}"
+        if i >= len(stage.bands):
+            result[bandn] = _disabled_band()
+            continue
+        b = stage.bands[i]
+        lo, hi = b.sidechain_hz or (edges[i], edges[i + 1])
+        # LSP's threshold port tops out at 0 dBFS. An inert band's value is
+        # never read (Surface parks an unused DRC band at +48 dB), and an
+        # active one above full scale could not trigger anyway.
+        threshold = min(b.threshold_db, 0.0) if b.enabled else 0.0
+        band = {}
+        if i > 0:
+            band["enable-band"] = True
+            band["split-frequency"] = round(edges[i], 1)
+        band.update({
+            "compressor-enable": b.enabled,
+            "mute": False,
+            "solo": False,
+            "attack-threshold": round(threshold, 4),
+            "attack-time": round(b.attack_ms, 4),
+            "release-threshold": MBC_RELEASE_THRESHOLD_FLOOR,
+            "release-time": round(b.release_ms, 4),
+            "ratio": round(b.ratio, 4),
+            "knee": round(stage.knee_db, 4),
+            "makeup": round(b.pregain_db, 4),
+            "compression-mode": "Downward",
+            "sidechain-type": "Internal",
+            "sidechain-mode": stage.detection,
+            "sidechain-source": "Middle",
+            "stereo-split-source": "Left/Right",
+            "sidechain-lookahead": 0.0,
+            "sidechain-reactivity": 10.0,
+            "sidechain-preamp": round(b.pregain_db, 4),
+            "sidechain-custom-lowcut-filter": b.sidechain_hz is not None,
+            "sidechain-custom-highcut-filter": b.sidechain_hz is not None,
+            "sidechain-lowcut-frequency": round(lo, 1),
+            "sidechain-highcut-frequency": round(hi, 1),
+            "boost-threshold": -60.0,
+            "boost-amount": 0.0,
+        })
+        result[bandn] = band
+    return result
+
+
 def make_limiter(input_gain: float = 0.0) -> dict:
     """Brickwall output limiter to catch any remaining overshoot.
 

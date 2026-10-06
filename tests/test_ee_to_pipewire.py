@@ -82,6 +82,7 @@ from tests.conftest import (
     synthetic_mb_comp,
     synthetic_peq_filters,
     synthetic_regulator,
+    synthetic_apo_layer,
     synthetic_virtual_bass,
 )
 
@@ -2286,6 +2287,8 @@ _INTENTIONALLY_UNTRANSLATED: dict[str, dict[str, UntranslatedParam]] = {
     },
     "multiband_compressor#0": _MBC_UNTRANSLATED,
     "multiband_compressor#1": _MBC_UNTRANSLATED,
+    "multiband_compressor#2": _MBC_UNTRANSLATED,
+    "multiband_compressor#3": _MBC_UNTRANSLATED,
     "limiter#0": {
         "oversampling": UntranslatedParam(
             "EE pins None == ovs default", "None", "ovs", 0.0,
@@ -2423,6 +2426,7 @@ def _coverage_preset(is_soundwire: bool = False,
         is_soundwire=is_soundwire, volmax_boost=3.0,
         volmax_slot=volmax_slot, enabled=enabled, disabled=disabled,
         virtual_bass=synthetic_virtual_bass(),
+        apo=synthetic_apo_layer(),
     )
     return preset
 
@@ -2614,6 +2618,8 @@ def test_untranslated_pinned_defaults_self_consistent():
 _URI_FOR_KEY = {
     "multiband_compressor#0": LSP_MBC_URI,
     "multiband_compressor#1": LSP_MBC_URI,
+    "multiband_compressor#2": LSP_MBC_URI,
+    "multiband_compressor#3": LSP_MBC_URI,
     "limiter#0": LSP_LIM_URI,
 }
 

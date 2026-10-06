@@ -708,3 +708,37 @@ def write_surface_package(root: Path, *, layout="msi", inf_subsys="10EC1284",
         json.dumps(config_json if config_json is not None
                    else surface_apo_json()), encoding="utf-8")
     return xml
+
+
+def synthetic_apo_layer(default_on=False):
+    """An `ApoLayer` shaped like the one `surface_apo_json` parses into,
+    built directly so preset tests need no package on disk."""
+    from lib.apo.layer import ApoLayer, BandDynamics, DynBand
+    eq = tuple(synthetic_surface_eq())
+    drc = BandDynamics(
+        name="drc", crossovers_hz=(120.0, 800.0), detection="RMS",
+        knee_db=0.0, bands=(
+            DynBand(True, -10.0, 3.0, 2.0, 30.0, pregain_db=2.0),
+            DynBand(True, -8.0, 2.0, 2.0, 30.0),
+            # Parked above full scale, as the shipped file parks its unused
+            # bands: the builder must keep it inside LSP's port range.
+            DynBand(False, 48.0, 1.0, 2.0, 30.0)))
+    crystal = BandDynamics(
+        name="crystal", crossovers_hz=(150.0, 316.2, 600.0), detection="Peak",
+        knee_db=0.0, bands=(
+            DynBand(False, 0.0, 1.0, 1.0, 40.0),
+            DynBand(True, -10.0, 100.0, 1.0, 40.0,
+                    sidechain_hz=(150.0, 250.0)),
+            DynBand(True, -20.0, 100.0, 1.0, 40.0,
+                    sidechain_hz=(400.0, 600.0)),
+            DynBand(False, 0.0, 1.0, 1.0, 40.0)))
+    return ApoLayer(label="Synthetic APO",
+                    config_path=Path("/synthetic/SurfaceAPO_TEST.json"),
+                    inf_path=Path("/synthetic/SurfaceAPOExtension.inf"),
+                    hardware_id="HDAUDIO\\FUNC_01&VEN_10EC&DEV_0274"
+                                "&SUBSYS_10EC1284",
+                    sample_rate=48000, eq_left=eq, eq_right=eq,
+                    dynamics=(drc, crystal),
+                    notes=("VolumeDepLS: volume-dependent shelf, not "
+                           "reproduced",),
+                    default_on=default_on)

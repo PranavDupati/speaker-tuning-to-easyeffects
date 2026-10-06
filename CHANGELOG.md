@@ -91,6 +91,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- **[AUDIBLE]** (opt-in) New experimental `--enable vendor-apo` adds speaker
+  tuning a vendor ships outside Dolby's file, starting with Microsoft's Surface
+  APO. The run says when it finds one. Not yet heard or compared with Windows
+  ([#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113)).
 - Mark additional tested devices: ThinkPad X13 Gen 2 Intel (20WK)
   ([#105](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/105)),
   ThinkPad X13 Yoga Gen 1 (20SX)
