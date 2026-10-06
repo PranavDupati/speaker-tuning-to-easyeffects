@@ -10,21 +10,22 @@
 
 ## Core invariants
 
-- **XML-only derivability.** Every emitted parameter must trace to a parsed DAX3
-  XML field, including FIR coefficients, biquad freq/Q/gain, compressor
-  thresholds and regulator gains. No per-device hand-tuned offsets: they invert
-  the value prop. The mappings are *hypotheses*, and the bar to change a default
-  one is high: `.claude/rules/xml-derivability.md`. Current
-  validated/unvalidated status: `docs/reference.md`.
+- **Tuning-file derivability.** Every emitted parameter must trace to a parsed
+  field of the device's OEM tuning file, the DAX3 XML or a supported vendor APO
+  config, including FIR coefficients, biquad freq/Q/gain, compressor thresholds
+  and regulator gains. No per-device hand-tuned offsets: they invert the value
+  prop. The mappings are *hypotheses*, and the bar to change a default one is
+  high: `.claude/rules/xml-derivability.md`. Current validated/unvalidated
+  status: `docs/reference.md`.
 - **Zero added latency** over the PipeWire quantum is a hard constraint
   (video lip-sync, interactive use), so the FIR stays **minimum-phase** and
   nothing in the chain takes look-ahead. Why that is load-bearing, and what
   the levers are: `.claude/rules/dsp-fir.md`.
 - **Every claim traces to evidence** in docs, copy, comments, replies and
-  commits, as every parameter traces to the XML. Assert a number only once it is
-  re-derived from data. Rewording carries numbers over exactly and keeps each
-  claim's scope: validated or hypothesis, which devices, what n. Checklist:
-  `.claude/rules/claims.md`.
+  commits, as every parameter traces to its tuning file. Assert a number only
+  once it is re-derived from data. Rewording carries numbers over exactly and
+  keeps each claim's scope: validated or hypothesis, which devices, what n.
+  Checklist: `.claude/rules/claims.md`.
 
 ## Testing
 

@@ -416,9 +416,9 @@ silently:
 - plugin objects missing from `plugins_order`, which the chain builder never
   visits
 
-The XML→preset mapping invariant applies here too; see CLAUDE.md "XML-only
-derivability". This script translates what EE's preset already encoded. It does
-not introduce new parameters or hand-tuned offsets.
+The tuning-file→preset mapping invariant applies here too; see CLAUDE.md
+"Tuning-file derivability". This script translates what EE's preset already
+encoded. It does not introduce new parameters or hand-tuned offsets.
 
 ### MBC per-control translation
 

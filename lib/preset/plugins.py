@@ -8,7 +8,7 @@ about it, which is `lib/report/messages.py`'s `--disable`/`--enable` menus.
 The Q15 decoders sit here rather than in `lib/dax/parse.py` because they are
 the *mapping*, not the parse: `parse_xml` hands over the stored integers, and
 turning them into the milliseconds and ratios LSP wants is a hypothesis about
-what Dolby meant by them (CLAUDE.md, "XML-only derivability").
+what Dolby meant by them (CLAUDE.md, "Tuning-file derivability").
 
 **This module reaches numpy transitively**, through `lib.preset.fir`, for the
 sample rate the MBC time constants decode against. So `dolby_to_easyeffects.py`
