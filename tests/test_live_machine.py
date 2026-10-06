@@ -95,8 +95,13 @@ def test_pw_top_still_parses_into_node_rows():
     rows = snapshots[-1]
     assert rows, "the last snapshot parsed to no node rows"
     assert all(r.state in "SIRC" for r in rows.values()), rows
-    drivers = [r for r in rows.values() if r.driver and r.rate]
-    assert drivers, f"no driver row carried a rate: {rows}"
+    # An idle graph reports every rate as 0, so only a running driver
+    # proves the RATE column is still read.
+    running = [r for name, r in rows.items()
+               if r.state == "R" and r.driver == name]
+    if not running:
+        pytest.skip("no driver running, so pw-top's RATE column went unread")
+    assert all(r.rate for r in running), running
 
 
 def test_pw_cli_still_reports_the_running_daemons_version():
