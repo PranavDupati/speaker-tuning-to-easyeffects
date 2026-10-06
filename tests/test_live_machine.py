@@ -29,6 +29,7 @@ never gated and runs for real in `tests/test_version.py`. `lv2info` and
 import os
 import platform
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -187,14 +188,32 @@ def test_flatpak_info_still_carries_the_easyeffects_version():
     assert version is not None, out
 
 
-def test_the_package_manager_still_names_an_easyeffects_candidate():
+def test_the_package_manager_still_names_an_easyeffects_candidate(
+        monkeypatch):
+    """Asked here, then parsed by the real reader. The code's query folds a
+    timeout, a failed exit and an empty answer into the same None as an
+    unreadable one; only the last is a format drift. The others are this
+    machine's metadata: a dnf with no cache exits 1, an apt that never ran
+    `apt update` prints nothing, and its 5 s budget can flake on a loaded CI
+    runner."""
     fam = packages.family()
     argv = packages.available_version_cmd(packages.EASYEFFECTS, fam)
     if not argv:
         pytest.skip(f"no version query for distro family {fam!r}")
     _need(argv[0])
+    try:
+        proc = tool_env.run(argv, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        pytest.skip(f"{argv[0]} didn't answer within 60 s")
+    if proc.returncode != 0:
+        pytest.skip(f"{argv[0]} exited {proc.returncode}: "
+                    f"{proc.stderr.strip()[:200]}")
+    if not proc.stdout.strip() or "Candidate: (none)" in proc.stdout:
+        pytest.skip(f"{argv[0]} offers no EasyEffects here")
+    monkeypatch.setattr(packages, "available_version_output",
+                        lambda key, fam: proc.stdout)
     major = doctor_run._distro_easyeffects_major(fam)
-    assert major is not None and major >= 6, (fam, argv, major)
+    assert major is not None and major >= 6, (fam, argv, proc.stdout)
 
 
 def test_the_package_manager_still_says_absent_the_way_unavailable_reads_it(
