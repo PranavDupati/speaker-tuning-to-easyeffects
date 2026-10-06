@@ -64,7 +64,10 @@ class ApoLayer:
     default separately. `notes` lists what the layer does not
     reproduce, each in a listener's words with the vendor block's name in
     parentheses for triage. The run prints them, so a listener comparing
-    with Windows knows what is missing.
+    with Windows knows what is missing. `skipped` lists the whole stages
+    the layer could not build, as `(stage, reason)`. The run prints each
+    beside the stages it did build, so a missing stage doesn't read like a
+    detail.
     """
     label: str
     config_path: Path
@@ -75,6 +78,7 @@ class ApoLayer:
     eq_right: tuple[Biquad, ...]
     dynamics: tuple[BandDynamics, ...]
     notes: tuple[str, ...]
+    skipped: tuple[tuple[str, str], ...] = ()
     default_on: bool = False
 
 

@@ -605,8 +605,10 @@ def surface_apo_json(fs=48000, sections=None, identity_pad=1):
     efx = [
         _apo_block("VolumeControl", fs, Enabled=[True], GainDb=[-128.0, -128.0]),
         _apo_block("MainEQ", fs, Enabled=[True], Coefficients=coeffs),
+        # Identity at state 0 only, as shipped: lower states boost.
         _apo_block("VolumeDepLS", fs, Enabled=[True],
-                   Coefficients=[1.0, 0.0, 0.0, 0.0, 0.0] * 2 * states),
+                   Coefficients=[1.0, 0.0, 0.0, 0.0, 0.0] * 2
+                   + [1.1, 0.0, 0.0, 0.0, 0.0] * 2 * (states - 1)),
         _apo_block("VolumeDepMBDRC4", fs, Enabled=[True],
                    CrossoverFreqs=[120.0, 800.0, 3000.0],
                    ThresholdDb=[-10.0, -8.0, 0.0, 0.0] * states,
@@ -634,8 +636,23 @@ def surface_apo_json(fs=48000, sections=None, identity_pad=1):
 
 
 def surface_apo_inf(subsys="10EC1284", dev="0274", config="SurfaceAPO_TEST.json",
-                    driver_ver="1.0.0.0"):
-    """A SurfaceAPOExtension.inf binding *config* to DEV/SUBSYS."""
+                    driver_ver="1.0.0.0", hwid=None, via_interfaces=False):
+    """A SurfaceAPOExtension.inf binding *config* to DEV/SUBSYS, or to
+    *hwid* when given.
+
+    *via_interfaces* sets the config through an AddInterface section, as
+    the Surface Pro 11 and 12 packages do, instead of the install section.
+    """
+    hwid = hwid or f"HDAUDIO\\FUNC_01&VEN_10EC&DEV_{dev}&SUBSYS_{subsys}"
+    install = ("""[Install_Test.Interfaces]
+AddInterface=%KSCATEGORY_RENDER%, %KSNAME_Speaker%, Iface_Speaker
+
+[Install_Test]
+CopyFiles = Config_CopyFiles
+
+[Iface_Speaker]
+AddReg = ApoAddReg_Test""" if via_interfaces else """[Install_Test.NT]
+AddReg = PresetAddReg, ApoAddReg_Test""")
     return f"""\
 ; synthetic
 [Version]
@@ -650,10 +667,9 @@ DriverVer = 01/01/2026,{driver_ver}
 %MfgName% = DeviceExtensions,NTamd64
 
 [DeviceExtensions.NTamd64]
-%Desc% = Install_Test, HDAUDIO\\FUNC_01&VEN_10EC&DEV_{dev}&SUBSYS_{subsys}
+%Desc% = Install_Test, {hwid}
 
-[Install_Test.NT]
-AddReg = PresetAddReg, ApoAddReg_Test
+{install}
 
 [PresetAddReg]
 HKR,InterfaceSetting,PrimaryLineOutTopo,%REG_MULTI_SZ%,"ApoPreset1"
@@ -667,18 +683,21 @@ Desc = "Microsoft Surface APO"
 PKEY_SurfaceApoConfigFilename = "{{c1f75c4c-3243-11ea-850d-2e728ce88125}},0"
 REG_SZ = 0x00000000
 REG_MULTI_SZ = 0x00010000
+KSCATEGORY_RENDER = "{{65E8773E-8F56-11D0-A3B9-00A0C9223196}}"
+KSNAME_Speaker = "Speaker0"
 """
 
 
 def write_surface_package(root: Path, *, layout="msi", inf_subsys="10EC1284",
                           dev="0274", config_json=None, utf16=False,
                           driver_ver="1.0.0.0", config="SurfaceAPO_TEST.json",
-                          package_dir=None) -> Path:
+                          package_dir=None, xml_name=None,
+                          hwid=None, via_interfaces=False) -> Path:
     """Write a DAX3 XML beside a Surface APO package; return the XML path.
 
-    The XML always tunes SUBSYS 10EC1284; *inf_subsys* is the device the
-    package's .inf binds, so a different value models a sibling package
-    for another model.
+    The XML tunes SUBSYS 10EC1284 unless *xml_name* names another;
+    *inf_subsys*, or a whole *hwid*, is the device the package's .inf binds,
+    so a different value models a sibling package for another model.
 
     `layout="msi"` mirrors an extracted MSI (`SurfaceUpdate/dax3extrtk/` +
     `SurfaceUpdate/surfaceapoextension/`). `"driverstore"` mirrors
@@ -695,10 +714,12 @@ def write_surface_package(root: Path, *, layout="msi", inf_subsys="10EC1284",
         apo_dir = root / package_dir
     xml_dir.mkdir(parents=True, exist_ok=True)
     apo_dir.mkdir(parents=True, exist_ok=True)
-    xml = xml_dir / f"DEV_{dev}_SUBSYS_10EC1284_PCI_SUBSYS_72708086.xml"
+    xml = xml_dir / (xml_name or
+                     f"DEV_{dev}_SUBSYS_10EC1284_PCI_SUBSYS_72708086.xml")
     xml.write_text("<device_data/>")
     inf_text = surface_apo_inf(subsys=inf_subsys, dev=dev, config=config,
-                               driver_ver=driver_ver)
+                               driver_ver=driver_ver, hwid=hwid,
+                               via_interfaces=via_interfaces)
     inf = apo_dir / "SurfaceAPOExtension.inf"
     if utf16:
         inf.write_bytes(inf_text.encode("utf-16"))

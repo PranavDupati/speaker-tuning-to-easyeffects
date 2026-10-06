@@ -10,11 +10,13 @@
 - **`--enable vendor-apo`** translates that config's `R/EFX` chain. It is
   opt-in and unvalidated: no Windows capture exists for any Surface
   ([Surface APO](#r-surface-apo-efx)).
+- **Eleven of the 25 surveyed Surface models ship a Surface APO endpoint
+  chain**, on HD-Audio and SoundWire speakers. The parser reads all 16 of their
+  configs; on 3 it leaves `Crystal` out. Every Dolby XML one of them binds has
+  its voicing off ([Surface fleet](#r-surface-apo-fleet)).
 
 Open:
 
-- Whether other Surface models ship a `SurfaceAPO_*.json`, and with the same
-  block set. Each would be a second-device check on the parser.
 - Fortemedia's render APO ships a per-device speaker file,
   `SAMSfpaspk_<SUBSYS>.dat`, in an opaque binary format. One Yoga Slim 7 ProX
   14ARH7 package's `OemXAudioExtFM_L.inf` names 96 of them. It is
@@ -149,3 +151,64 @@ Open:
   whole chain, so Dolby's virtual-bass harmonics skip the vendor EQ and
   dynamics. On Windows the Surface EFX processes all of Dolby's output.
 - The channel order of the interleave is unread: L and R are identical here.
+
+<a id="r-surface-apo-fleet"></a>
+
+## The Surface fleet: which models ship a Surface APO chain, and its shapes
+
+Conditions: the newest Windows 11 driver MSI of 24 x86 Surface models on
+Microsoft's download pages (the Surface Go 2 lists none), plus the Surface Pro
+9 package from [Surface APO](#r-surface-apo-efx); extracted with `msiextract`
+and read 2026-10-06. Each config was bound with `lib/apo/surface.py`'s finder
+against the Dolby XMLs in the same MSI. Not surveyed, though their pages list
+a Windows 11 MSI: the Book 2, Laptop Go, Pro (5th gen), Pro 6, Studio 2,
+Studio 2+ and Hub 3/Hub 2S.
+
+**12 of the 25 models ship a `SurfaceAPO_*.json`.** The other 13 (Book 3,
+Go 3 and 4, Laptop 3 and 4 in their AMD and Intel editions, Laptop 5, Laptop
+Go 2 and 3, Laptop Studio, Pro 7 and 7+) ship none. Every one of the 12 binds
+through `SurfaceAPOExtension.inf`, in a folder named `surfaceapoextension/`,
+`apoextension/`, `APOExtension/` or `surfacerender_ext/` depending on the MSI.
+
+| Model | Configs | Bus | Shape, beside the Pro 9's | Translated |
+|---|---|---|---|---|
+| Pro 8 | 122E, 1248 | HD-Audio | 8-band `VolumeDepMBDRC` with five crossovers at 22.6–23 kHz; `Crystal` lists 10 entries, each resonance twice in a row, F0s unsorted | DRC as its 3 bands below 20 kHz; `Crystal` as 5 resonances |
+| Pro 9 (Intel) | 1284 | HD-Audio | (the reference) | all of [Surface APO](#r-surface-apo-efx)'s mappings |
+| Pro 10 for Business | 12D2 | HD-Audio | same block set | same |
+| Pro 10 with 5G | 1332 | HD-Audio | same block set | same |
+| Pro 11 (Intel) | 3070 | SoundWire | `VolumeDepPN`; the config is set through the `.inf`'s AddInterface sections only | same |
+| Pro 12 (Intel) | 3086, 308c | SoundWire | `MainEQ1` and `MainEQ2`; `VolumeDepPN`; AddInterface only | both EQs, cascaded in file order |
+| Laptop 6 for Business | 1286, 1288 | HD-Audio | `Crystal1` (5 active) and `Crystal2` (1 active, `ActiveLimiterCount`) | `Crystal` as 6 resonances |
+| Laptop 7 (Intel) | 3072, 3074 | SoundWire | `VolumeDepPN`; `Crystal1` (5 active) and `Crystal2` (2 active) | `Crystal` left out: 7 resonances |
+| Laptop 7 5G for Business (Intel) | 307A | SoundWire | as the Laptop 7 | as the Laptop 7 |
+| Laptop 8 (Intel) | 3088, 308A | SoundWire | `VolumeDepPN`; 308A: per-band DRC output limits, `Crystal` F0s unsorted with resonances at 9 and 12 kHz | same; 308A's output limits are left out |
+| Laptop for Business 13" 1st Ed. (Intel) | 3090 | SoundWire | `VolumeDepPN` | same |
+| Laptop Studio 2 | 1282 | HD-Audio | no `R/EFX` chain; its `R/MFX` EQs are identity except NOTIFICATION | no layer |
+
+"Same" means the Pro 9's translation; `VolumeDepPN` is a volume-dependent EQ,
+left out with the shelves. One unvalidated reading weighs more here than on
+the Pro 9: its DRC has 10 identical volume states, but 12 of the 16 configs
+have states that differ, so reading state 0 as full volume decides their
+compressor settings. A SoundWire XML is named after the speaker
+function's manufacturer, function and subsystem IDs, and its hardware ID
+carries all three. Each config binds exactly one XML in its own MSI, and the
+corpus tier's vendor test folds, builds and converts all 16 pairs.
+
+**Every XML bound to an endpoint chain has its voicing off:** 16 of 16
+(`audio-optimizer-enable`, `ieq-enable` and `graphic-equalizer-enable` 0 in
+every profile). The Laptop Studio 2, whose config has no endpoint chain, ships
+an XML with IEQ on in its `dynamic` profile. No fleet XML has all three on. That
+reads as Microsoft moving each speaker's voicing out of Dolby into its own APO,
+an inference: the converse doesn't hold, since 30 of the 41 content-distinct
+XMLs in the 24 surveyed MSIs have their voicing off, including ones no surveyed
+config binds.
+
+Open:
+
+- `Crystal` with more than 6 resonances (the Laptop 7 configs) fits no single
+  8-band stage. A limiter stage per `Crystal` block would carry it, which
+  needs a third vendor stage slot beside `multiband_compressor#2` and `#3`.
+- `VolumeDepPN`'s filter type is unread; it is volume-dependent, so it is out
+  of reach either way.
+- L and R differ in 10 of the 16 configs' EQs, so the interleave's channel
+  order matters there, and it is still unread.

@@ -129,7 +129,8 @@ def test_run_folds_the_eq_and_adds_the_stages(tmp_path, silence_console,
     assert "Microsoft Surface APO" in out and ", applied" in out
     assert "IEQ+AO+APO" in out
     assert "Correction check passed" in out
-    assert "[vendor-apo-not-reproduced]" in out
+    assert "[vendor-apo-not-reproduced] Nothing to do." in out
+    assert "is in the presets" not in out
     presets = sorted(out_dir.glob("*.json"))
     assert presets
     for p in presets:
@@ -195,6 +196,22 @@ def test_closing_names_a_found_layer_left_out(tmp_path, silence_console,
     out = " ".join(capsys.readouterr().out.split())
     assert ("Not included: the Microsoft Surface APO speaker tuning found "
             "beside the Dolby file — --enable vendor-apo adds it") in out
+
+
+def test_a_stage_the_layer_could_not_build_sits_with_the_stages(
+        silence_console, capsys):
+    """Not only inside the dim left-out list, where it read like a detail."""
+    import dataclasses
+
+    from lib.report import profile
+    silence_console(console)
+    apo = dataclasses.replace(
+        synthetic_apo_layer(),
+        skipped=(("Resonance limiter", "its 7 resonances are too many"),))
+    profile._print_apo_layer(apo, True, False)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Resonance limiter: not applied, since its 7 resonances" in out
+    assert out.index("not applied") < out.index("[vendor-apo-not-reproduced]")
 
 
 def test_all_profiles_prints_the_vendor_section_once(tmp_path,

@@ -198,21 +198,26 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
         if db[0] < -6.0:
             corner = f[int(np.argmax(db >= -6.0))]
             parts.append(f"cuts the deep bass below {corner:.0f} Hz")
+        # Under 1 dB is too small to name: a +0.7 dB boost read as a feature
+        # (vendor-apo fleet review).
         cut_i = int(np.argmin(np.where(f >= 100.0, db, np.inf)))
-        if db[cut_i] < -0.5:
+        if db[cut_i] < -1.0:
             parts.append(f"cuts to {db[cut_i]:+.1f} dB at {f[cut_i]:.0f} Hz "
                          f"({register(f[cut_i])})")
         boost_i = int(np.argmax(db))
-        if db[boost_i] > 0.5:
+        if db[boost_i] > 1.0:
             parts.append(f"boosts to {db[boost_i]:+.1f} dB at "
                          f"{f[boost_i]:.0f} Hz ({register(f[boost_i])})")
         if not parts:
             # Nothing above caught it: a shallow bass cut, say.
             span = float(np.max(np.abs(db)))
-            parts.append("within ±0.5 dB" if span <= 0.5
+            parts.append("within ±1 dB" if span <= 1.0
                          else f"shapes it by up to {span:.1f} dB")
-        console._cprint_wrapped("", "  Tone: " + ", ".join(parts),
-                                indent="    ")
+        # Whose tuning it is: bare dB figures such as a 13 dB midrange cut
+        # read as damage (vendor-apo fleet review). The config is bound to
+        # this device's hardware ID.
+        console._cprint_wrapped("", "  Tone, as tuned for this speaker: "
+                                + ", ".join(parts), indent="    ")
     for stage in apo.dynamics:
         live = [(i, b) for i, b in enumerate(stage.bands) if b.enabled]
         if not live:
@@ -256,6 +261,11 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
         if verbose:
             console._cprint_wrapped("dim", "    " + "; ".join(detail),
                                     indent="    ")
+    # A whole stage left out sits with the stages built, not inside the
+    # dim list below, where it read like a detail (vendor-apo fleet review).
+    for stage, reason in apo.skipped:
+        console._cprint_wrapped("", f"  {stage}: not applied, since {reason}",
+                                indent="    ")
     finding = _vendor_apo_not_reproduced_finding(apo)
     if finding is None:
         return []
@@ -270,8 +280,11 @@ def _vendor_apo_not_reproduced_finding(apo) -> Finding | None:
         return None
     return Finding(
         slug="vendor-apo-not-reproduced",
-        detail=f"The rest of the {apo.label} tuning is in the presets. Left "
-               "out: " + "; ".join(apo.notes) + ". Nothing to do.",
+        # "Nothing to do" leads: at the end it came only after the whole
+        # list. "The rest is in the presets" read as contradicting "Left out",
+        # and is EasyEffects wording on a PipeWire run (vendor-apo review).
+        detail=f"Nothing to do. Left out of the {apo.label} tuning: "
+               + "; ".join(apo.notes) + ".",
         kind="ask")
 
 

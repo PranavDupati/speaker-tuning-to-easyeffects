@@ -104,10 +104,10 @@ Microsoft's Surface APO is the one format read:
 
 | Surface APO block | Becomes |
 |---|---|
-| `MainEQ` biquads | Folded into the FIR, its target floored 40 dB under its peak |
-| `VolumeDepMBDRC4` | `multiband_compressor#2`, at volume state 0, read (unvalidated) as full volume |
-| `Crystal` | `multiband_compressor#3`, one limiter band per resonance |
-| `VolumeDepLS/HS`, hold times, `OutputLimiter` | Not reproduced; the run lists them |
+| `MainEQ` biquads, every `MainEQ*` block in file order | Folded into the FIR, its target floored 40 dB under its peak |
+| `VolumeDepMBDRC4`, `VolumeDepMBDRC` | `multiband_compressor#2`, at volume state 0, read (unvalidated) as full volume; bands above 20 kHz dropped |
+| `Crystal`, `Crystal1`, `Crystal2` | `multiband_compressor#3`, one limiter band per resonance; entries identical in the fields it uses collapse. With more than 6 resonances, or two sharing an F0, the whole stage is left out and the run says so |
+| `VolumeDepLS/PN/HS`, hold times, `OutputLimiter`, any other block | Not reproduced; the run lists them |
 
 - **Convolver.** With its loudest band at 0 dB, the stage only ever
   attenuates, and a curve whose peak exceeds `volmax-boost` emits a preset
@@ -397,7 +397,9 @@ saturator constants are measurement-calibrated rather than XML-derived
 Unvalidated, opt-in, `--enable vendor-apo`: every Surface APO mapping. That
 covers the biquad layout and sign convention, the DRC's pregain and full-volume
 state, and the Crystal-to-limiter-band reading, the weakest of them. No Windows
-capture exists for any Surface device
+capture exists for any Surface device, and the parser has read only the 11
+models' configs in
+[the fleet survey](research/vendor-apo.md#r-surface-apo-fleet)
 ([Surface APO finding](research/vendor-apo.md#r-surface-apo-efx), issue
 [#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113)).
 
