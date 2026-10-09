@@ -110,5 +110,9 @@ jobs:
           # Appended to the action's own --allowedTools, not replacing it: the
           # CLI merges the two lists. Anything in neither is denied outright —
           # a headless run has nobody to approve a permission prompt.
-          claude_args: --allowedTools "${{ steps.refs.outputs.allowed_tools }}"
+          # --model takes the alias, not a dated ID, so it follows the current
+          # Sonnet without a workflow edit.
+          claude_args: |
+            --model sonnet
+            --allowedTools "${{ steps.refs.outputs.allowed_tools }}"
 

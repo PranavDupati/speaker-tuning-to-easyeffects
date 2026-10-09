@@ -430,7 +430,12 @@ jobs:
           # keeps fumbling the exact string, the escape hatch is the
           # file-scoped prefix form, "Bash(python3 -m pytest
           # tests/test_readme_devices_order.py:*)" — still one test file.
+          #
+          # Haiku: the task is one bookkeeping row and a PR, and the Report
+          # outcome step fails the job if it goes wrong. An alias, not a dated
+          # ID, so it follows the current Haiku without a workflow edit.
           claude_args: |
+            --model haiku
             --allowedTools Read Grep Glob "Edit(README.md)" "Edit(CHANGELOG.md)" "Bash(gh issue view:*)" "Bash(gh pr list:*)" "Bash(git status:*)" "Bash(git diff:*)" "Bash(git add:*)" "Bash(git commit:*)" "Bash(git push:*)" "Bash(gh pr create:*)" "Bash(python3 -m pytest tests/test_readme_devices_order.py -q)"
             --max-turns 25
             --json-schema '{"type":"object","properties":{"outcome":{"type":"string","enum":["pr_created","already_covered","blocked"]},"device":{"type":"string"},"pr_url":{"type":"string"},"details":{"type":"string"}},"required":["outcome","device","details"]}'
