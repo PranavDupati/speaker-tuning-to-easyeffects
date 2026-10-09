@@ -90,6 +90,9 @@ STDLIB_ONLY = (
     # The socket transport to a running EasyEffects, reached from --doctor and
     # from the end of a generator run; its own docstring promises stdlib-only.
     "lib.ee_socket",
+    # What starts EasyEffects at login: reached from --doctor and from the end
+    # of a generator run's autoload, like ee_socket above.
+    "lib.ee_autostart",
     "lib.data.kernel_releases",
     "lib.data.speaker_pin_quirks",
     "lib.data.speaker_route_quirks",

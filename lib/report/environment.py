@@ -636,7 +636,13 @@ def global_bypass_status() -> CheckResult:
         "power-button icon in EasyEffects' top bar.")
 
 
-def autostart_status(rc_data: dict) -> CheckResult:
+def autostart_status(rc_data: dict, *, launched_by: str = "",
+                     service_argv: bool = False,
+                     launch_service_mode: bool = False,
+                     launch_autostart_entry: bool = False,
+                     compositor: str = "",
+                     startup_hint: tuple[str, str] = ("", ""),
+                     toggle_unsaved: bool = False) -> CheckResult:
     """Whether EasyEffects is set to keep running in the background so the
     preset stays applied. Two Background-Service toggles matter, both persisted
     in ``[Window]``: ``autostartOnLogin`` (launch at login, default off) and
@@ -644,29 +650,101 @@ def autostart_status(rc_data: dict) -> CheckResult:
     The preset only processes audio while EasyEffects runs, so if EITHER is off
     it silently stops applying after a window-close or reboot. That is a common
     "it was working, now it sounds like nothing" cause. Both off and a single
-    one off are all problem states, so we name exactly the toggle(s) that are
-    off."""
-    autostart = rc_data.get("autostart_on_login")
-    service = rc_data.get("service_mode")
-    if autostart and service:
+    one off are all problem states, so we name exactly what is off and that
+    nothing else stands in for.
+
+    Some setups start EasyEffects from the desktop session's startup, not
+    through those toggles. ``launched_by``, what launches it at login, stands
+    in for autostart. ``service_argv``, a running process started in service
+    mode, and ``launch_service_mode``, a launch command that turns it on,
+    stand in for service mode: EasyEffects saves the service-mode flag as its
+    toggle and applies the saved toggle at every start
+    (``src/command_line_parser.cpp``, ``src/db_manager.cpp``).
+    `lib/report/doctor_run.py` probes them through `lib/ee_autostart.py`.
+
+    On a ``compositor`` session (one of ee_autostart's ``_SESSIONS``), the
+    autostart toggle only writes an XDG autostart entry, which such a session
+    runs only through a helper (uwsm, ``dex -a``, a systemd session). So the
+    toggle there, like a launcher that is such an entry
+    (``launch_autostart_entry``), makes the result UNKNOWN rather than PASS,
+    and the advice is the compositor's own startup: ``startup_hint``, the
+    instruction and the line to add. A service-mode process with no launcher
+    found is UNKNOWN too: something launched it, and this check can't tell
+    whether it comes back after a reboot. ``toggle_unsaved`` marks a toggle
+    known on from its autostart entry while the rc, which the setup row above
+    shows, still says off."""
+    toggle = bool(rc_data.get("autostart_on_login"))
+    service = bool(rc_data.get("service_mode") or service_argv
+                   or launch_service_mode)
+    conditional_launcher = launch_autostart_entry and bool(compositor)
+    definite = (bool(launched_by) and not conditional_launcher) or (
+        toggle and not compositor)
+    conditional = not definite and (toggle or bool(launched_by))
+    if definite and service:
+        if toggle and not compositor:
+            # The setup row shows the rc, so a toggle known from its entry
+            # alone says why the two differ rather than seem to contradict it.
+            unsaved = (": its 'Autostart on login' entry is in place, though the "
+                       "setup above still shows the setting EasyEffects last "
+                       "saved" if toggle_unsaved else "")
+            return CheckResult(DOCTOR_PASS, "Background service",
+                f"EasyEffects autostarts as a background service at login{unsaved}"
+                " — the preset applies automatically and survives reboots.")
+        # The setup row above reads the toggle's state, so a launcher that
+        # stands in for an off toggle says so rather than seem to contradict it.
+        lead = ("EasyEffects' own 'Autostart on login' is off, but "
+                f"{launched_by} starts it at login" if not toggle
+                else f"{launched_by[:1].upper()}{launched_by[1:]} starts "
+                     "EasyEffects at login")
         return CheckResult(DOCTOR_PASS, "Background service",
-            "EasyEffects autostarts as a background service at login — the "
-            "preset applies automatically and survives reboots.")
+            f"{lead} — the preset applies automatically and survives reboots.")
+    lead_in, line = startup_hint
+    steps = (("", lead_in), ("cta", line)) if line else ()
+    own_startup = (f"add it to {compositor}'s own startup"
+                   + (" with the line below" if line else ""))
+    what = (f"{launched_by} is an autostart entry" if launched_by
+            else "'Autostart on login' only writes an autostart entry")
+    reason = (f"{what}, which {compositor} runs only through a helper such as "
+              "uwsm, dex -a or a systemd session")
+    # Both UNKNOWNs read alike: the consequence, a check the reader can run at
+    # the next login (what this check can't see is exactly what that settles),
+    # then the fix.
+    after_login = ("After your next login, check that EasyEffects is running. "
+                   "If it isn't, ")
+    if conditional and service:
+        return CheckResult(DOCTOR_UNKNOWN, "Background service",
+            f"EasyEffects may not start again after a reboot: {reason}. "
+            f"{after_login}{own_startup}.", steps=steps)
+    if service_argv:
+        fix = (f"{own_startup}." if compositor
+               else "add it to your session's startup, or on a desktop that "
+                    "runs autostart entries, turn on 'Autostart on login' in "
+                    "EasyEffects > Preferences > Background Service.")
+        return CheckResult(DOCTOR_UNKNOWN, "Background service",
+            "EasyEffects may not start again after a reboot: nothing found "
+            f"starts it at login. {after_login}{fix}", steps=steps)
     # Name the toggle(s) up front and adjacent, then group the explanations:
     # inline parentheticals would bury the second toggle so it reads as one
     # warning.
+    lead = ("EasyEffects won't reliably keep processing in the background, so "
+            "the preset applies only while it's open.")
     off, why = [], []
     if not service:
         off.append("'Enable service mode'")
         why.append("service mode keeps it running once the window is closed")
-    if not autostart:
+    if not (definite or conditional or compositor):
         off.append("'Autostart on login'")
         why.append("autostart relaunches it after a reboot")
-    return CheckResult(DOCTOR_WARN, "Background service",
-        "EasyEffects won't reliably keep processing in the background, so the "
-        "preset applies only while it's open. In EasyEffects > Preferences > "
-        "Background Service, turn on " + " and ".join(off)
-        + " (" + "; ".join(why) + ").")
+    parts = [lead]
+    if off:
+        parts.append("In EasyEffects > Preferences > Background Service, turn on "
+                     + " and ".join(off) + " (" + "; ".join(why) + ").")
+    # On a compositor session the login launch can't be relied on either, so
+    # its fix comes with the same WARN rather than in a second round.
+    if not definite and compositor:
+        parts.append(f"{own_startup[0].upper()}{own_startup[1:]}: {reason}.")
+    return CheckResult(DOCTOR_WARN, "Background service", " ".join(parts),
+                       steps=steps if compositor and not definite else ())
 
 
 def _alsa_utils_step() -> tuple[tuple[str, str], ...]:

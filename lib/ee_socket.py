@@ -39,6 +39,14 @@ PRESET_REQUEST = "get_last_loaded_preset:output\n"
 BYPASS_REQUEST = "get_global_bypass\n"
 
 
+# The kernel's process name for EasyEffects, which ``pgrep -x`` matches, cut
+# to 15 characters (proc_pid_comm(5)): nixpkgs' wrapProgram renames the binary
+# .easyeffects-wrapped and runs it with the wrapper's argv0, so its process is
+# named ".easyeffects-wr" while its argv[0] still ends in "easyeffects".
+PROCESS_NAMES = ("easyeffects", ".easyeffects-wr")
+PROCESS_PATTERN = "|".join(name.replace(".", r"\.") for name in PROCESS_NAMES)
+
+
 def easyeffects_running() -> bool | None:
     """Is an EasyEffects process up? ``None`` when nothing could ask.
 
@@ -51,7 +59,7 @@ def easyeffects_running() -> bool | None:
     ``None`` as falsy and stay silent.
     """
     try:
-        proc = tool_env.run(["pgrep", "-x", "easyeffects"],
+        proc = tool_env.run(["pgrep", "-x", PROCESS_PATTERN],
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL, timeout=2,
                             check=False)

@@ -205,6 +205,13 @@ def no_live_machine(request, monkeypatch, _empty_host_root):
         return
     monkeypatch.setenv(tool_env.NO_LIVE_TOOLS, "1")
     monkeypatch.setenv(host.HOST_ROOT, str(_empty_host_root))
+    # The user's config directory is machine state too: the --doctor probes
+    # scan its autostart entries and session startup files. Constants derived
+    # from it at import time keep their value in-process.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(_empty_host_root / "config-home"))
+    monkeypatch.delenv("XDG_CONFIG_DIRS", raising=False)
+    # Which desktop this is decides which startup files count.
+    monkeypatch.delenv("XDG_CURRENT_DESKTOP", raising=False)
     _host_reads.clear()
     _watching_host = True
     try:

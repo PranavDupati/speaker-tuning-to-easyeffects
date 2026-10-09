@@ -50,7 +50,8 @@ import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lib import console, doctor, ee_paths, ee_socket, packages, tool_env, version
+from lib import (console, doctor, ee_autostart, ee_paths, ee_socket, packages,
+                 tool_env, version)
 from lib.doctor import (
     DOCTOR_FAIL,
     DOCTOR_PASS,
@@ -763,7 +764,14 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     # Background-service / autostart is install-global, not output-dir-specific,
     # so it runs even under custom dirs (unlike the selected-preset check).
     if rc_text:
-        report.checks.append(environment.autostart_status(rc))
+        try:
+            report.checks.append(autostart_check(rc))
+        except (OSError, RuntimeError) as exc:
+            # An unreadable or looping config: say so rather than end the
+            # report in a traceback.
+            report.checks.append(CheckResult(DOCTOR_UNKNOWN, "Background service",
+                "Whether EasyEffects starts at login couldn't be checked: "
+                f"reading the startup settings failed ({exc})."))
 
     # 5. Hardware / codec context (folds in --speaker-info)
     report.speaker_info = report_speaker._gather_speaker_info()
@@ -795,7 +803,8 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     pw_clock = session.read_settings()
     pw_xruns = session.read_xruns(sink=live.sink or "")
     pw_age = session.process_age("pipewire")
-    ee_age = session.process_age("easyeffects")
+    # pgrep -x takes the name as a pattern: the Nix-wrapped name too.
+    ee_age = session.process_age(ee_socket.PROCESS_PATTERN)
     # Which server those numbers describe, probed once here beside them.
     pw_version = session.pipewire_version()
     # The running daemon when the graph named it, the installed binary
@@ -892,6 +901,46 @@ def _ee_running_fact(live) -> bool | None:
     if live.preset_is_live or live.bypass_is_live:
         return True
     return ee_socket.easyeffects_running()
+
+
+def autostart_check(rc: dict) -> CheckResult:
+    """`environment.autostart_status` fed with what this session shows.
+
+    EasyEffects' own autostart entry is its toggle, so finding it reads as the
+    toggle being on, whatever the rc last saved."""
+    processes = ee_autostart.own_processes()
+    launch = ee_autostart.background_launch_source(processes)
+    toggle_unsaved = launch.is_toggle and not rc.get("autostart_on_login")
+    if launch.is_toggle:
+        rc = {**rc, "autostart_on_login": True}
+    return environment.autostart_status(
+        rc, launched_by=launch.source, toggle_unsaved=toggle_unsaved,
+        service_argv=ee_autostart.service_mode_launch(processes),
+        launch_service_mode=launch.service_mode,
+        launch_autostart_entry=launch.autostart_entry,
+        compositor=launch.compositor, startup_hint=launch.startup_hint)
+
+
+def background_service_tip(rc: dict) -> CheckResult | None:
+    """The Background service result a normal run repeats, or None.
+
+    The WARN and the UNKNOWN both: the UNKNOWN's own sentence hedges what the
+    check can't see, so repeating it is safe, and staying silent there let a
+    preset that won't survive a reboot pass unremarked. The run prints the
+    check's own sentence and steps, so what it names is what the check found.
+    With both toggles on, the session is probed unless the desktop is known
+    not to be a compositor's: on a compositor session the toggle alone is no
+    PASS."""
+    # A Tip is never worth a failed run: an unreadable or looping config
+    # skips it rather than end the run in a traceback.
+    try:
+        if (rc.get("autostart_on_login") and rc.get("service_mode")
+                and ee_autostart.desktop_runs_autostart_entries()):
+            return None
+        check = autostart_check(rc)
+    except (OSError, RuntimeError):
+        return None
+    return check if check.status in (DOCTOR_WARN, DOCTOR_UNKNOWN) else None
 
 
 def _pipewire_unread_check(clock_settings, xruns) -> CheckResult | None:

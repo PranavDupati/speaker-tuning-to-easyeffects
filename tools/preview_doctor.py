@@ -32,7 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from lib import doctor, ee_paths, ee_socket            # noqa: E402
+from lib import doctor, ee_autostart, ee_paths, ee_socket  # noqa: E402
 from lib.hardware import sinks                         # noqa: E402
 from lib.pipewire import checks, session               # noqa: E402
 from lib.preset import autoload                        # noqa: E402
@@ -155,6 +155,33 @@ SCENARIOS: dict[str, dict] = {
         "sinks": [_SPEAKER, _HEADSET], "default": _SPEAKER["name"],
         "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced",
         "graph_rate": 192000},
+    "session-launched": {
+        "why": "EasyEffects' own autostart toggle is off, and the desktop "
+               "session's startup file launches it with --service-mode "
+               "instead (issue #117)",
+        "sinks": [_SPEAKER, _HEADSET], "default": _SPEAKER["name"],
+        "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced",
+        "rc": "[Window]\nautostartOnLogin=false\n",
+        "launched_by": "~/.config/hypr/hyprland.conf", "launch_service": True,
+        "service_argv": True, "compositor": "Hyprland"},
+    "service-mode-untraced": {
+        "why": "the autostart toggle is off and EasyEffects runs with "
+               "--service-mode, but no startup file the check reads launches "
+               "it: the report can't tell whether it comes back after a reboot",
+        "sinks": [_SPEAKER, _HEADSET], "default": _SPEAKER["name"],
+        "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced",
+        "rc": "[Window]\nautostartOnLogin=false\n",
+        "launched_by": "", "service_argv": True},
+    "compositor-toggle-only": {
+        "why": "a Hyprland session with EasyEffects' own autostart toggle on and "
+               "nothing in Hyprland's startup: the toggle only writes an "
+               "autostart entry, which Hyprland runs only through a helper",
+        "sinks": [_SPEAKER, _HEADSET], "default": _SPEAKER["name"],
+        "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced",
+        "rc": "[Window]\nautostartOnLogin=true\n",
+        "launched_by": "", "service_argv": True, "compositor": "Hyprland",
+        "startup_hint": ("In ~/.config/hypr/hyprland.conf, add:",
+                         "exec-once = easyeffects --hide-window --service-mode")},
 }
 
 
@@ -162,18 +189,20 @@ SCENARIOS: dict[str, dict] = {
 def _scenario(slug: str):
     """Stub the probes one scenario needs, and restore every one after.
 
-    Five levers, because the report reads five things: the sink graph, the
-    default sink, the autoload directory, the presets and impulse files on
-    disk, and what EasyEffects says it has loaded. Every one of them is
-    machine state, and any left real makes the rendered block depend on the
-    laptop rather than on the scenario. A sixth, ``env``, reaches the states
+    One lever per kind of machine state the report reads: the sink graph and
+    its soft-mixer flag, the default sink, the autoload directory, the presets
+    and impulse files on disk, what EasyEffects says it has loaded, how it
+    gets started (its startup files and running arguments), and for some
+    scenarios the PipeWire session. Any left real makes the rendered block
+    depend on the laptop rather than on the scenario. ``rc`` stages the rc a scenario about its toggles
+    describes. One more, ``env``, reaches the states
     keyed to hardware the capture machine isn't: it sets the same DEMO_*
     variables the copy previews use, so the hardware checks fire through
     their shipped detection rather than a faked CheckResult. The stubs are restored on the way
     out — all scenarios run in one process, and a leak would let one decide
     the next one's answer while the block map still claimed otherwise.
 
-    Yields the staged install as (output_dir, irs_dir, autoload_dir).
+    Yields the staged install as (output_dir, irs_dir, autoload_dir, rc_path).
     """
     spec = SCENARIOS[slug]
     saved_env = {k: os.environ.get(k) for k in spec.get("env", ())}
@@ -183,6 +212,8 @@ def _scenario(slug: str):
         "soft_mixer": sinks.soft_mixer_in_use,
         "query": doctor_run._ee_query,
         "read_rc": autoload.read_ee_rc,
+        "launch": (ee_autostart.background_launch_source,
+                   ee_autostart.service_mode_launch, ee_autostart.own_processes),
         "session": (session.read_settings, session.read_xruns,
                     session.process_age, session.pipewire_version,
                     session.wireplumber_version),
@@ -238,8 +269,8 @@ def _scenario(slug: str):
     # `useDefaultOutputDevice` off means EasyEffects is pinned to a device and
     # the rc is authoritative — which would route around the stubbed graph
     # entirely and collapse every scenario onto the capture machine's own
-    # pinned sink. The rest of the rc stays real: it is the reader's own
-    # install this is describing.
+    # pinned sink. The rest of the rc stays real, the reader's own install,
+    # unless the scenario stages its own rc (``rc``).
     def read_rc(rc_text):
         rc = saved["read_rc"](rc_text)
         rc["use_default_output_device"] = True
@@ -251,11 +282,25 @@ def _scenario(slug: str):
 
     doctor_run._ee_query = query
     autoload.read_ee_rc = read_rc
+    # How EasyEffects gets started is machine state too: the startup files in
+    # the capture machine's home and its running process's arguments.
+    ee_autostart.own_processes = lambda: []
+    ee_autostart.background_launch_source = lambda *a: ee_autostart.Launch(
+        spec.get("launched_by", ""), spec.get("launch_service", False),
+        compositor=spec.get("compositor", ""),
+        startup_hint=spec.get("startup_hint", ("", "")))
+    ee_autostart.service_mode_launch = lambda *a: spec.get("service_argv", False)
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         out_dir, irs_dir = _stage_install(root, spec.get("stamp"))
         autoload_dir = root / "autoload"
         autoload_dir.mkdir()
+        # A scenario about the rc's own toggles stages the rc it describes;
+        # the others read the capture machine's, as the reader's install.
+        rc_path = ee_paths.DEFAULT_EASYEFFECTS_RC
+        if "rc" in spec:
+            rc_path = root / "easyeffectsrc"
+            rc_path.write_text(spec["rc"])
         for device, (route, preset) in spec["autoload"].items():
             autoload.write_autoload(autoload_dir, device_name=device,
                                     device_description="", device_profile=route,
@@ -266,13 +311,16 @@ def _scenario(slug: str):
             # restore would inject the synthetic codec into every later
             # scenario and test in the process.
             os.environ.update(spec.get("env", {}))
-            yield out_dir, irs_dir, autoload_dir
+            yield out_dir, irs_dir, autoload_dir, rc_path
         finally:
             sinks._enumerate_audio_sinks = saved["enum"]
             sinks.live_session = saved["default"]
             sinks.soft_mixer_in_use = saved["soft_mixer"]
             doctor_run._ee_query = saved["query"]
             autoload.read_ee_rc = saved["read_rc"]
+            (ee_autostart.background_launch_source,
+             ee_autostart.service_mode_launch,
+             ee_autostart.own_processes) = saved["launch"]
             (session.read_settings, session.read_xruns,
              session.process_age, session.pipewire_version,
              session.wireplumber_version) = saved["session"]
@@ -285,13 +333,13 @@ def _scenario(slug: str):
 
 def render(slug: str) -> None:
     """Print one scenario's report, exactly as `--doctor` would print it."""
-    with _scenario(slug) as (out_dir, irs_dir, autoload_dir):
+    with _scenario(slug) as (out_dir, irs_dir, autoload_dir, rc_path):
         # custom_dirs=False on purpose: these *are* temp dirs, but the run
         # being portrayed wrote to the default ones, and passing True would
         # swap the install check for the "skipping location checks" UNKNOWN
         # a real reader never sees.
         report = doctor_run._gather_doctor_report(
-            out_dir, irs_dir, ee_paths.DEFAULT_EASYEFFECTS_RC,
+            out_dir, irs_dir, rc_path,
             custom_dirs=False, autoload_dir=autoload_dir)
         # The two rows that would otherwise name the staging tree. The run
         # being portrayed wrote to the default install; the temp tree exists
@@ -300,6 +348,7 @@ def render(slug: str) -> None:
         # a path still says whatever the code made it say.
         report.facts["output_dir"] = doctor.tilde(ee_paths.DEFAULT_OUTPUT_DIR)
         report.facts["irs_dir"] = doctor.tilde(ee_paths.DEFAULT_IRS_DIR)
+        report.facts["rc_path"] = doctor.tilde(ee_paths.DEFAULT_EASYEFFECTS_RC)
         doctor_run._print_doctor_report(report)
 
 

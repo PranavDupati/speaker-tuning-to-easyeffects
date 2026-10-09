@@ -109,8 +109,21 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   Microsoft Surface Laptop 4
   ([#118](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/118)).
 
+### Changed
+
+- On Hyprland, sway and similar compositors, `--doctor` reports the 'Autostart
+  on login' toggle as unknown rather than passing, and gives the line to add to
+  the compositor's own startup: the toggle writes an autostart entry, which
+  these run only through a helper such as uwsm
+  ([#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117)).
+
 ### Fixed
 
+- `--doctor` no longer warns "Background service" when a startup file it
+  reads launches EasyEffects instead of its autostart toggle: the running
+  compositor's config or an autostart entry. With EasyEffects running in
+  service mode and no such file, it reports unknown
+  ([#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117)).
 - When numpy is missing but `/usr/bin/python3` has it, the error says to run
   with `/usr/bin/python3` instead of repeating an install command. This
   happens when another `python3`, such as Homebrew's, comes first on `PATH`

@@ -67,7 +67,8 @@ It checks the common causes and prints a pasteable report:
   while EasyEffects is active, so it can vanish after you close the window or
   reboot. In EasyEffects → Preferences → Background Service, shown below, enable
   *Enable service mode* and *Autostart on login*. `--doctor` reports whether
-  both are set.
+  both are set, or whether a startup file it reads, such as your compositor's
+  config, launches EasyEffects instead.
 
 ![EasyEffects' global on/off toggle, highlighted at top left. If it's off, every preset is bypassed.](images/ee-global-bypass.jpg)
 

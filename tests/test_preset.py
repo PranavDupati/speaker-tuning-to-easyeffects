@@ -79,6 +79,8 @@ from lib.preset.plugins import (
     make_multiband_compressor,
     make_regulator,
 )
+from lib.ee_autostart import background_launch_source, service_mode_launch
+from lib.report.doctor_run import background_service_tip
 from lib.report.environment import (
     DoctorReport,
     autostart_status,
@@ -2405,6 +2407,810 @@ def test_background_service_missing_keys_warn_safely():
     """A partial/older dict must not KeyError; missing flags fall to the
     warn-safe direction."""
     assert autostart_status({}).status == DOCTOR_WARN
+
+
+def test_background_service_session_launch_passes_without_autostart_toggle():
+    """#117: the desktop session starts `easyeffects --service-mode` at login while
+    the 'Autostart on login' toggle is off. That is working, not a WARN."""
+    r = autostart_status({"autostart_on_login": False, "service_mode": True},
+                         launched_by="~/.config/hypr/hyprland.conf")
+    assert r.status == DOCTOR_PASS
+    assert "hyprland.conf" in r.detail
+    # The setup row above it reads "autostart off"; the PASS must say why
+    # that is fine rather than seem to contradict it (/user-review 2026-10-09).
+    assert "'Autostart on login' is off" in r.detail
+
+
+def test_background_service_unknown_leads_with_the_consequence():
+    """A list of what was searched, ahead of the consequence, buried it
+    (/user-review 2026-10-09, round 2)."""
+    r = autostart_status({"autostart_on_login": False, "service_mode": True},
+                         service_argv=True)
+    assert r.detail.startswith("EasyEffects may not start again after a reboot")
+
+
+def test_background_service_launch_command_stands_in_for_service_mode():
+    """A startup line that passes --service-mode turns service mode on at
+    login, so an off toggle isn't WARNed about when EasyEffects happens not to
+    be running at check time (code review 2026-10-09)."""
+    r = autostart_status({"autostart_on_login": False, "service_mode": False},
+                         launched_by="~/.config/hypr/hyprland.conf",
+                         launch_service_mode=True)
+    assert r.status == DOCTOR_PASS
+
+
+def test_background_service_argv_without_startup_file_is_unknown_not_warn():
+    """TRAP: a --service-mode process with no startup file found must not
+    WARN. The check can't tell whether it returns after a reboot, so it says
+    so and names the toggle that would make it certain."""
+    r = autostart_status({"autostart_on_login": False, "service_mode": False},
+                         service_argv=True)
+    assert r.status == DOCTOR_UNKNOWN
+    assert "Autostart on login" in r.detail
+    assert "Enable service mode" not in r.detail
+
+
+def test_background_service_argv_with_service_toggle_off_still_passes_service():
+    """The running argv stands in for service mode, so an off toggle is not
+    named when the process proves otherwise."""
+    r = autostart_status({"autostart_on_login": True, "service_mode": False},
+                         service_argv=True)
+    assert r.status == DOCTOR_PASS
+
+
+def test_background_launch_source_finds_xdg_autostart(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    entry = tmp_path / "cfg" / "autostart" / "easyeffects.desktop"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("[Desktop Entry]\nExec=easyeffects --hide-window --service-mode\n")
+    assert background_launch_source().source.endswith("easyeffects.desktop")
+
+
+def test_background_launch_source_skips_hidden_xdg_entry(tmp_path, monkeypatch):
+    """A user entry with Hidden=true overrides the system one: not a launcher."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    entry = tmp_path / "cfg" / "autostart" / "easyeffects.desktop"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("Exec=easyeffects --service-mode\nHidden=true\n")
+    assert background_launch_source().source == ""
+
+
+def _sessions_running(monkeypatch, *names):
+    """Make ``names`` this session's compositors, and point $HOME away from the
+    real one: sway and i3 also read files under it."""
+    from lib import ee_autostart
+    monkeypatch.setattr(ee_autostart, "_session_compositors",
+                        lambda processes: set(names))
+    monkeypatch.setenv("HOME", "/nonexistent-atmos-test-home")
+
+
+def test_background_launch_source_reads_session_file_ignoring_comments(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, "Hyprland")
+    conf = tmp_path / "cfg" / "hypr" / "hyprland.conf"
+    conf.parent.mkdir(parents=True)
+    conf.write_text("# exec-once = easyeffects --service-mode\n")
+    assert background_launch_source().source == ""
+    conf.write_text("exec-once = easyeffects --service-mode --hide-window\n")
+    assert background_launch_source().source.endswith("hyprland.conf")
+
+
+def test_background_launch_source_ignores_keybind_naming_easyeffects(
+        tmp_path, monkeypatch):
+    """A keybind or window rule that names EasyEffects is not a login launch."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, "Hyprland")
+    conf = tmp_path / "cfg" / "hypr" / "hyprland.conf"
+    conf.parent.mkdir(parents=True)
+    conf.write_text("bind = SUPER, E, exec, easyeffects\n"
+                    "windowrulev2 = float, class:^(easyeffects)$\n")
+    assert background_launch_source().source == ""
+
+
+def test_background_launch_source_user_entry_replaces_system_one(
+        tmp_path, monkeypatch):
+    """XDG: a user file of the same name replaces the system file, so a
+    Hidden=true user copy switches off a system entry that would launch."""
+    from lib import host
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv(host.HOST_ROOT, str(tmp_path / "host"))
+    system = host.path("/etc/xdg/autostart") / "easyeffects.desktop"
+    system.parent.mkdir(parents=True, exist_ok=True)
+    system.write_text("Exec=easyeffects --hide-window --service-mode\n")
+    assert background_launch_source().source.endswith("easyeffects.desktop")
+    user = tmp_path / "cfg" / "autostart" / "easyeffects.desktop"
+    user.parent.mkdir(parents=True)
+    user.write_text("Exec=easyeffects --service-mode\nHidden=true\n")
+    assert background_launch_source().source == ""
+
+
+def test_background_launch_source_x_systemd_skip_is_not_a_launcher(
+        tmp_path, monkeypatch):
+    """systemd's autostart generator skips an entry with X-systemd-skip=true."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    entry = tmp_path / "cfg" / "autostart" / "easyeffects.desktop"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("Exec=easyeffects --service-mode\nX-systemd-skip=true\n")
+    assert background_launch_source().source == ""
+
+
+def test_background_launch_source_execr_once_and_river_init(tmp_path, monkeypatch):
+    """Hyprland's raw execr-once runs on launch; river's init is a startup script."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, "Hyprland")
+    conf = tmp_path / "cfg" / "hypr" / "hyprland.conf"
+    conf.parent.mkdir(parents=True)
+    conf.write_text("execr-once = easyeffects --service-mode\n")
+    assert background_launch_source().source.endswith("hyprland.conf")
+    conf.unlink()
+    _sessions_running(monkeypatch, "river")
+    init = tmp_path / "cfg" / "river" / "init"
+    init.parent.mkdir(parents=True)
+    init.write_text("riverctl map normal Super E spawn easyeffects\n")
+    assert background_launch_source().source == ""
+    init.write_text("easyeffects --service-mode &\n")
+    assert background_launch_source().source.endswith("init")
+
+
+def test_background_launch_source_reads_xdg_config_dirs_entries(
+        tmp_path, monkeypatch):
+    """A system directory named in $XDG_CONFIG_DIRS is read, and a user file of
+    the same name still replaces it."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("XDG_CONFIG_DIRS", str(tmp_path / "sys"))
+    system = tmp_path / "sys" / "autostart" / "easyeffects.desktop"
+    system.parent.mkdir(parents=True)
+    system.write_text("Exec=easyeffects --service-mode\n")
+    assert background_launch_source().source.endswith("easyeffects.desktop")
+    user = tmp_path / "cfg" / "autostart" / "easyeffects.desktop"
+    user.parent.mkdir(parents=True)
+    user.write_text("Exec=easyeffects\nHidden=true\n")
+    assert background_launch_source().source == ""
+
+
+def test_background_service_tip_probes_even_with_both_toggles_on(monkeypatch):
+    """On a compositor session the toggle alone is no PASS, so a configured rc
+    still needs the probe, and the Tip repeats that UNKNOWN."""
+    from lib import ee_autostart as env
+    monkeypatch.setattr(env, "own_processes", lambda: [])
+    monkeypatch.setattr(env, "service_mode_launch", lambda *_: False)
+    monkeypatch.setattr(env, "background_launch_source", lambda *_: env.Launch())
+    assert background_service_tip({"autostart_on_login": True,
+                                   "service_mode": True}) is None
+    monkeypatch.setattr(env, "background_launch_source",
+                        lambda *_: env.Launch(compositor="sway"))
+    tip = background_service_tip({"autostart_on_login": True,
+                                  "service_mode": True})
+    assert tip.status == DOCTOR_UNKNOWN
+
+
+def _stub_launch(monkeypatch, launch=None, running_service=False):
+    from lib import ee_autostart as env
+    monkeypatch.setattr(env, "own_processes", lambda: [])
+    monkeypatch.setattr(env, "background_launch_source",
+                        lambda *_: launch or env.Launch())
+    monkeypatch.setattr(env, "service_mode_launch", lambda *_: running_service)
+
+
+def test_background_service_tip_repeats_the_warn_and_the_unknown(monkeypatch):
+    """The Tip prints the check's own sentence, and the UNKNOWN's hedges what
+    the check can't see, so both are safe to repeat; silence on the UNKNOWN
+    let a preset that won't survive a reboot pass unremarked."""
+    _stub_launch(monkeypatch, running_service=True)
+    tip = background_service_tip({"autostart_on_login": False,
+                                  "service_mode": False})
+    assert tip.status == DOCTOR_UNKNOWN
+    _stub_launch(monkeypatch)
+    tip = background_service_tip({"autostart_on_login": False,
+                                  "service_mode": False})
+    assert tip.status == DOCTOR_WARN
+
+
+def test_background_service_tip_names_only_the_toggle_the_warn_names(monkeypatch):
+    """With a session file standing in for autostart, the WARN is about
+    service mode alone, and the Tip must not also ask for autostart, which
+    would add a second launcher (code review 2026-10-09)."""
+    from lib import ee_autostart as env
+    _stub_launch(monkeypatch, env.Launch("~/.config/hypr/hyprland.conf"))
+    tip = background_service_tip({"autostart_on_login": False,
+                                  "service_mode": False})
+    assert "Enable service mode" in tip.detail
+    assert "Autostart on login" not in tip.detail
+
+
+def test_own_autostart_entry_reads_as_the_toggle(tmp_path, monkeypatch):
+    """EasyEffects writes its own entry as soon as the toggle is switched on,
+    before the rc is saved: that entry is the toggle, not an outside launcher
+    (code review 2026-10-09)."""
+    from lib import ee_autostart
+    from lib.report import doctor_run
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setattr(ee_autostart, "own_processes", lambda: [])
+    entry = tmp_path / "cfg" / "autostart" / "com.github.wwmm.easyeffects.desktop"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("Exec=easyeffects --hide-window --service-mode\n")
+    r = doctor_run.autostart_check({"autostart_on_login": False, "service_mode": True})
+    assert r.status == DOCTOR_PASS
+    assert "'Autostart on login' is off" not in r.detail
+
+
+def test_autostart_entry_on_a_bare_compositor_is_conditional(
+        tmp_path, monkeypatch):
+    """Hyprland, sway, i3, niri, labwc and river run XDG autostart entries
+    only through a helper (uwsm, dex -a, a systemd session), so an entry there
+    is neither a PASS nor ignored: UNKNOWN, with the compositor's own startup
+    as the advice."""
+    from lib import ee_autostart
+    from lib.report import doctor_run
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    entry = tmp_path / "cfg" / "autostart" / "my-easyeffects.desktop"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("Exec=easyeffects --service-mode\n")
+    launch = background_launch_source()
+    assert launch.source.endswith("my-easyeffects.desktop")
+    assert launch.autostart_entry and launch.compositor == ""
+    _sessions_running(monkeypatch, "sway")
+    monkeypatch.setattr(ee_autostart, "own_processes", lambda: [])
+    launch = background_launch_source()
+    assert launch.autostart_entry and launch.compositor == "sway"
+    r = doctor_run.autostart_check({"autostart_on_login": False,
+                                    "service_mode": True})
+    assert r.status == DOCTOR_UNKNOWN
+    assert "sway's own startup" in r.detail
+
+
+def test_autostart_toggle_on_a_bare_compositor_is_conditional():
+    """The toggle only writes an autostart entry, so on these sessions it is
+    no PASS either: following the old 'turn on Autostart on login' advice
+    there produced a PASS while nothing launched EasyEffects."""
+    r = autostart_status({"autostart_on_login": True, "service_mode": True},
+                         compositor="Hyprland")
+    assert r.status == DOCTOR_UNKNOWN
+    assert "Hyprland's own startup" in r.detail
+
+
+def test_background_service_warn_on_a_bare_compositor_points_at_its_startup():
+    r = autostart_status({"autostart_on_login": False, "service_mode": True},
+                         compositor="niri")
+    assert r.status == DOCTOR_WARN
+    assert "Add it to niri's own startup" in r.detail
+    assert "turn on 'Autostart on login'" not in r.detail
+    r = autostart_status({"autostart_on_login": False, "service_mode": False},
+                         compositor="niri")
+    assert "turn on 'Enable service mode'" in r.detail
+    assert "Add it to niri's own startup" in r.detail
+
+
+def test_background_service_warn_gives_the_compositor_step_with_the_toggle_on():
+    """Toggle on but service off on a compositor session: one WARN names both
+    service mode and the compositor's startup, with the line to add, rather
+    than the advice arriving over two rounds."""
+    r = autostart_status({"autostart_on_login": True, "service_mode": False},
+                         compositor="sway",
+                         startup_hint=("In ~/.config/sway/config, add:",
+                                       "exec easyeffects --hide-window --service-mode"))
+    assert r.status == DOCTOR_WARN
+    assert "turn on 'Enable service mode'" in r.detail
+    assert "sway's own startup with the line below" in r.detail
+    assert r.steps == (("", "In ~/.config/sway/config, add:"),
+                       ("cta", "exec easyeffects --hide-window --service-mode"))
+
+
+@pytest.mark.parametrize("name", ["Hyprland", "sway", "i3", "niri", "labwc", "river"])
+def test_each_compositor_example_line_is_one_its_parser_reads(name):
+    """The line the advice prints must be one the check then counts, with the
+    service-mode flag."""
+    from lib import ee_autostart
+    session = ee_autostart._SESSIONS[name]
+    argv = ee_autostart._session_file_argv(session, ee_autostart.startup_line(name) + "\n")
+    assert argv and "--service-mode" in argv
+
+
+def test_startup_line_runs_the_flatpak_when_it_is_the_only_install(monkeypatch):
+    """With only the Flatpak there is no easyeffects on PATH; each compositor's
+    line must still be one its parser counts as starting EasyEffects."""
+    from lib import ee_autostart
+    monkeypatch.setattr(ee_autostart.tool_env, "which", lambda name: None)
+    monkeypatch.setattr(ee_autostart.ee_paths, "flatpak_app_installed", lambda: True)
+    for name, session in ee_autostart._SESSIONS.items():
+        line = ee_autostart.startup_line(name)
+        assert "flatpak" in line and "com.github.wwmm.easyeffects" in line
+        argv = ee_autostart._session_file_argv(session, line + "\n")
+        assert argv and "--service-mode" in argv, name
+
+
+def test_background_launch_source_reads_every_detected_compositor(
+        tmp_path, monkeypatch):
+    """With two compositor processes and no $XDG_CURRENT_DESKTOP, the one whose
+    file launches EasyEffects is found, whichever sorts first."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, "Hyprland", "sway")
+    conf = tmp_path / "cfg" / "sway" / "config"
+    conf.parent.mkdir(parents=True)
+    conf.write_text("exec easyeffects --service-mode\n")
+    launch = background_launch_source()
+    assert launch.source.endswith("sway/config") and launch.compositor == "sway"
+
+
+def test_own_processes_also_asks_for_the_nix_wrapped_process_name(monkeypatch):
+    """nixpkgs' wrapProgram names the process .easyeffects-wrapped, cut to 15
+    characters, while argv[0] keeps the wrapper's .../bin/easyeffects."""
+    import subprocess as sp
+    from lib import ee_autostart
+    seen = {}
+
+    def fake_run(argv, **kw):
+        seen["pattern"] = argv[-1]
+        return sp.CompletedProcess(argv, 0, stdout=(
+            "9 /nix/store/x-easyeffects/bin/easyeffects --gapplication-service\n"))
+    monkeypatch.setattr(ee_autostart.tool_env, "run", fake_run)
+    assert service_mode_launch() is True
+    assert r"\.easyeffects-wr" in seen["pattern"].split("|")
+
+
+def test_compositor_launcher_with_the_toggle_on_doesnt_say_it_is_off():
+    r = autostart_status({"autostart_on_login": True, "service_mode": True},
+                         launched_by="~/.config/sway/config", compositor="sway")
+    assert r.status == DOCTOR_PASS
+    assert "is off" not in r.detail
+
+
+def test_flatpak_own_entry_is_the_toggle_and_any_entry_can_pass_service_mode(
+        tmp_path, monkeypatch):
+    """EasyEffects' own entry is the toggle by its file name, even when a
+    Flatpak's runs `flatpak run …`, and another entry without the flag doesn't
+    hide the one that passes it."""
+    from lib import host
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv(host.HOST_ROOT, str(tmp_path / "host"))
+    own = tmp_path / "cfg" / "autostart" / "com.github.wwmm.easyeffects.desktop"
+    own.parent.mkdir(parents=True)
+    own.write_text("Exec=flatpak run --command=easyeffects "
+                   "com.github.wwmm.easyeffects --hide-window --service-mode\n")
+    other = host.path("/etc/xdg/autostart") / "foo.desktop"
+    other.parent.mkdir(parents=True)
+    other.write_text("Exec = easyeffects --hide-window\n")
+    launch = background_launch_source()
+    assert launch.is_toggle and launch.service_mode
+    assert launch.source.endswith("foo.desktop")
+
+
+def test_gnome_disabled_autostart_entry_is_not_a_launcher(tmp_path, monkeypatch):
+    """GNOME's Startup Applications switch writes X-GNOME-Autostart-enabled,
+    which GNOME's session reads."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    entry = tmp_path / "cfg" / "autostart" / "easyeffects.desktop"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("Exec=easyeffects --service-mode\n"
+                     "X-GNOME-Autostart-enabled=false\n")
+    assert background_launch_source().source == ""
+
+
+def _targets_active(monkeypatch, *names):
+    from lib import ee_autostart
+    monkeypatch.setattr(ee_autostart, "_active_targets",
+                        lambda targets: set(names) & set(targets))
+
+
+def test_startup_line_only_for_a_file_that_exists(tmp_path, monkeypatch):
+    """A new user config replaces the system one the compositor was reading
+    (sway(1), i3(1), labwc-config(5)), so the line is offered for the user's
+    own file, or, with only a system file, after copying it; never as a new
+    file that would drop the system one."""
+    from lib import ee_autostart, host
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv(host.HOST_ROOT, str(tmp_path / "host"))
+    _sessions_running(monkeypatch, "sway")
+    assert background_launch_source().startup_hint == ("", "")
+    system = host.path("/etc/sway/config")
+    system.parent.mkdir(parents=True)
+    system.write_text("exec waybar\n")
+    lead_in, line = background_launch_source().startup_hint
+    assert lead_in.startswith("Copy /etc/sway/config to ") and "sway/config" in lead_in
+    assert line == ee_autostart.startup_line("sway")
+    conf = tmp_path / "cfg" / "sway" / "config"
+    conf.parent.mkdir(parents=True)
+    conf.write_text("exec waybar\n")
+    lead_in, line = background_launch_source().startup_hint
+    assert lead_in.startswith("In ") and lead_in.endswith("sway/config, add:")
+    _sessions_running(monkeypatch, "labwc")
+    assert background_launch_source().startup_hint == ("", "")
+    labwc = host.path("/etc/xdg/labwc/autostart")
+    labwc.parent.mkdir(parents=True)
+    labwc.write_text("lxpanel &\n")
+    lead_in, _ = background_launch_source().startup_hint
+    assert lead_in.startswith("Copy /etc/xdg/labwc/autostart to ")
+
+
+def test_no_startup_line_beside_a_hyprland_lua_config(tmp_path, monkeypatch):
+    """Hyprland reads hyprland.lua instead of hyprland.conf when both exist,
+    so a line added to hyprland.conf would never run."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, "Hyprland")
+    hypr = tmp_path / "cfg" / "hypr"
+    hypr.mkdir(parents=True)
+    (hypr / "hyprland.conf").write_text("exec-once = waybar\n")
+    assert background_launch_source().startup_hint[1]
+    (hypr / "hyprland.lua").write_text("-- migrated\n")
+    assert background_launch_source().startup_hint == ("", "")
+
+
+def test_a_compositor_session_that_runs_autostart_entries_counts_them(
+        tmp_path, monkeypatch):
+    """niri-session and uwsm start xdg-desktop-autostart.target, the opt-in
+    systemd.special(7) gives a desktop for systemd's autostart generator; with
+    it active, an entry or the toggle is a definite launcher."""
+    from lib import ee_autostart
+    from lib.report import doctor_run
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, "niri")
+    monkeypatch.setattr(ee_autostart, "own_processes", lambda: [])
+    _targets_active(monkeypatch, "xdg-desktop-autostart.target")
+    launch = background_launch_source()
+    assert launch.compositor == ""
+    r = doctor_run.autostart_check({"autostart_on_login": True,
+                                    "service_mode": True})
+    assert r.status == DOCTOR_PASS
+
+
+def test_toggle_known_only_from_its_entry_says_why_the_setup_row_differs():
+    r = autostart_status({"autostart_on_login": True, "service_mode": True},
+                         toggle_unsaved=True)
+    assert r.status == DOCTOR_PASS
+    assert "last saved" in r.detail
+
+
+def test_compositor_unknowns_lead_with_the_consequence_too():
+    for kwargs in ({"rc_data": {"autostart_on_login": True, "service_mode": True}},
+                   {"rc_data": {"autostart_on_login": False, "service_mode": True},
+                    "service_argv": True}):
+        rc = kwargs.pop("rc_data")
+        r = autostart_status(rc, compositor="Hyprland", **kwargs)
+        assert r.status == DOCTOR_UNKNOWN
+        assert r.detail.startswith("EasyEffects may not start again after a reboot")
+        assert "After your next login" in r.detail
+
+
+@pytest.mark.parametrize("name, top, include, included", [
+    ("Hyprland", "hypr/hyprland.conf", "source = ~/autostart.conf",
+     "exec-once = easyeffects --service-mode"),
+    ("sway", "sway/config", "include parts/*.conf",
+     "exec easyeffects --service-mode"),
+])
+def test_background_launch_source_follows_includes(
+        tmp_path, monkeypatch, name, top, include, included):
+    """Dotfile setups keep startup lines in included files: Hyprland's
+    `source = path` and sway's or i3's `include <paths...>`, relative to the
+    including file and shell expanded."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, name)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    conf = tmp_path / "cfg" / top
+    conf.parent.mkdir(parents=True)
+    conf.write_text(include + "\n")
+    if include.startswith("source"):
+        target = tmp_path / "home" / "autostart.conf"
+    else:
+        target = conf.parent / "parts" / "10-autostart.conf"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(included + "\n")
+    launch = background_launch_source()
+    assert launch.source.endswith(target.name) and launch.service_mode
+
+
+def test_unknown_reads_right_outside_the_doctor_too():
+    """The generator's Tip repeats this sentence, where no check ran."""
+    r = autostart_status({"autostart_on_login": False, "service_mode": True},
+                         service_argv=True)
+    assert "this check" not in r.detail
+
+
+def test_dex_in_the_compositor_config_runs_autostart_entries(tmp_path, monkeypatch):
+    """`dex -a` (dex(1)) runs XDG autostart entries, so on that session the
+    toggle is a definite launcher, not a reason to add a second one."""
+    from lib import ee_autostart
+    from lib.report import doctor_run
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, "Hyprland")
+    monkeypatch.setattr(ee_autostart, "own_processes", lambda: [])
+    conf = tmp_path / "cfg" / "hypr" / "hyprland.conf"
+    conf.parent.mkdir(parents=True)
+    conf.write_text("exec-once = dex -a\n")
+    assert background_launch_source().compositor == ""
+    r = doctor_run.autostart_check({"autostart_on_login": True,
+                                    "service_mode": True})
+    assert r.status == DOCTOR_PASS
+
+
+def test_launch_from_an_included_file_names_that_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, "Hyprland")
+    hypr = tmp_path / "cfg" / "hypr"
+    hypr.mkdir(parents=True)
+    (hypr / "hyprland.conf").write_text("source = autostart.conf\n")
+    (hypr / "autostart.conf").write_text("exec-once = easyeffects --service-mode\n")
+    assert background_launch_source().source.endswith("autostart.conf")
+
+
+def test_pass_by_a_unit_with_the_toggle_on_opens_capitalised():
+    r = autostart_status({"autostart_on_login": True, "service_mode": True},
+                         launched_by="the user service easyeffects.service",
+                         compositor="sway")
+    assert r.status == DOCTOR_PASS
+    assert r.detail.startswith("The user service")
+
+
+def test_tip_skips_the_subprocesses_on_a_configured_ordinary_desktop(monkeypatch):
+    """Both toggles on and $XDG_CURRENT_DESKTOP naming a desktop that runs
+    autostart entries: no pgrep or systemctl on a normal run."""
+    from lib import ee_autostart
+
+    def no_subprocess(*a, **kw):
+        raise AssertionError("ran a subprocess")
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
+    monkeypatch.setattr(ee_autostart.tool_env, "run", no_subprocess)
+    assert background_service_tip({"autostart_on_login": True,
+                                   "service_mode": True}) is None
+
+
+def test_tip_never_raises_on_an_unreadable_config(monkeypatch):
+    from lib import ee_autostart
+
+    def broken(*_):
+        raise RuntimeError("Symlink loop")
+    monkeypatch.setattr(ee_autostart, "background_launch_source", broken)
+    monkeypatch.setattr(ee_autostart, "own_processes", lambda: [])
+    assert background_service_tip({"autostart_on_login": False,
+                                   "service_mode": True}) is None
+
+
+def test_system_config_the_compositor_falls_back_to_is_scanned(tmp_path, monkeypatch):
+    """With no user config, i3 reads its system one, whose shipped version runs
+    `dex --autostart` (i3's etc/config): the toggle then works."""
+    from lib import ee_autostart, host
+    from lib.report import doctor_run
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv(host.HOST_ROOT, str(tmp_path / "host"))
+    _sessions_running(monkeypatch, "i3")
+    monkeypatch.setattr(ee_autostart, "own_processes", lambda: [])
+    system = host.path("/etc/i3/config")
+    system.parent.mkdir(parents=True)
+    system.write_text("exec --no-startup-id dex --autostart --environment i3\n")
+    assert background_launch_source().compositor == ""
+    r = doctor_run.autostart_check({"autostart_on_login": True,
+                                    "service_mode": True})
+    assert r.status == DOCTOR_PASS
+
+
+def test_absolute_include_is_read_through_the_host_root(tmp_path, monkeypatch):
+    """sway's shipped config includes /etc/sway/config.d/*: a system path,
+    read through lib/host.py like any other."""
+    from lib import host
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv(host.HOST_ROOT, str(tmp_path / "host"))
+    _sessions_running(monkeypatch, "sway")
+    conf = tmp_path / "cfg" / "sway" / "config"
+    conf.parent.mkdir(parents=True)
+    conf.write_text("include /etc/sway/config.d/*\n")
+    drop_in = host.path("/etc/sway/config.d") / "90-ee.conf"
+    drop_in.parent.mkdir(parents=True)
+    drop_in.write_text("exec easyeffects --service-mode\n")
+    assert background_launch_source().source.endswith("90-ee.conf")
+
+
+def test_commented_helper_line_doesnt_count(tmp_path, monkeypatch):
+    """labwc's autostart is a shell script: a `# dex -a` line is a comment."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, "labwc")
+    conf = tmp_path / "cfg" / "labwc" / "autostart"
+    conf.parent.mkdir(parents=True)
+    conf.write_text("# dex -a\nwaybar & # was: dex -a\n")
+    assert background_launch_source().compositor == "labwc"
+    conf.write_text("waybar & dex -a\n")
+    assert background_launch_source().compositor == ""
+
+
+def test_doctor_reports_an_unreadable_config_instead_of_crashing(
+        tmp_path, monkeypatch, capsys):
+    """The tool meant to diagnose a broken setup must not end in a traceback."""
+    from lib.report import doctor_run
+
+    def broken(rc):
+        raise PermissionError(13, "Permission denied", "/home/u/.config/hypr")
+    monkeypatch.setattr(doctor_run, "autostart_check", broken)
+    rc = tmp_path / "easyeffectsrc"
+    rc.write_text("[Window]\nautostartOnLogin=true\n")
+    report = doctor_run._gather_doctor_report(tmp_path / "out", tmp_path / "irs",
+                                              rc, custom_dirs=True,
+                                              autoload_dir=tmp_path / "al")
+    check = next(c for c in report.checks if c.label == "Background service")
+    assert check.status == DOCTOR_UNKNOWN and "Permission denied" in check.detail
+
+
+def test_easyeffects_argv_keeps_an_empty_quoted_argument():
+    """An empty "" is an argument, not a command separator."""
+    from lib.ee_autostart import _easyeffects_argv
+    assert _easyeffects_argv('easyeffects "" --service-mode') == [
+        "easyeffects", "", "--service-mode"]
+
+
+@pytest.mark.parametrize("line", [
+    "exec = easyeffects --service-mode",
+    "execr = easyeffects --service-mode",
+    "exec-once = [workspace 2 silent; float] easyeffects --service-mode",
+])
+def test_background_launch_source_reads_every_hyprland_launch_directive(
+        tmp_path, monkeypatch, line):
+    """Hyprland's legacy config manager queues exec and execr at first launch
+    as it does the -once forms, and exec takes a "[rules] " prefix."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, "Hyprland")
+    conf = tmp_path / "cfg" / "hypr" / "hyprland.conf"
+    conf.parent.mkdir(parents=True)
+    conf.write_text(line + "\n")
+    launch = background_launch_source()
+    assert launch.source.endswith("hyprland.conf")
+    assert launch.service_mode
+
+
+def test_background_launch_source_ignores_a_compositor_not_running(
+        tmp_path, monkeypatch):
+    """A config left behind by another desktop must not pass for this
+    session's startup (/copy-audit 2026-10-09)."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    conf = tmp_path / "cfg" / "hypr" / "hyprland.conf"
+    conf.parent.mkdir(parents=True)
+    conf.write_text("exec-once = easyeffects --service-mode\n")
+    _sessions_running(monkeypatch)
+    assert background_launch_source().source == ""
+    _sessions_running(monkeypatch, "sway")
+    assert background_launch_source().source == ""
+    _sessions_running(monkeypatch, "Hyprland")
+    assert background_launch_source().source.endswith("hyprland.conf")
+
+
+def test_background_launch_source_follows_sways_config_search_order(
+        tmp_path, monkeypatch):
+    """sway(1): it reads the first of ~/.sway/config, sway/config,
+    ~/.i3/config and i3/config, and nothing after it."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, "sway")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    i3 = tmp_path / "cfg" / "i3" / "config"
+    i3.parent.mkdir(parents=True)
+    i3.write_text("exec easyeffects --service-mode\n")
+    assert background_launch_source().source.endswith("i3/config")
+    own = tmp_path / "home" / ".sway" / "config"
+    own.parent.mkdir(parents=True)
+    own.write_text("exec waybar\n")
+    assert background_launch_source().source == ""
+
+
+def test_background_launch_source_skips_hyprland_conf_beside_a_lua_config(
+        tmp_path, monkeypatch):
+    """Hyprland loads hyprland.lua instead of hyprland.conf when it exists,
+    and the Lua config isn't parsed, so neither counts."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, "Hyprland")
+    hypr = tmp_path / "cfg" / "hypr"
+    hypr.mkdir(parents=True)
+    (hypr / "hyprland.conf").write_text("exec-once = easyeffects --service-mode\n")
+    (hypr / "hyprland.lua").write_text("-- migrated\n")
+    assert background_launch_source().source == ""
+
+
+@pytest.mark.parametrize("name, path, text", [
+    ("niri", "niri/config.kdl",
+     'spawn-sh-at-startup "easyeffects --service-mode --hide-window"\n'),
+    ("river", "river/init",
+     "riverctl spawn 'easyeffects --service-mode'\n"),
+])
+def test_background_launch_source_reads_shell_string_directives(
+        tmp_path, monkeypatch, name, path, text):
+    """niri's spawn-sh-at-startup and river's top-level riverctl spawn each
+    take one shell string, which is read as a command line."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    _sessions_running(monkeypatch, name)
+    conf = tmp_path / "cfg" / path
+    conf.parent.mkdir(parents=True)
+    conf.write_text(text)
+    assert background_launch_source().source.endswith(path.rsplit("/", 1)[-1])
+
+
+def test_session_compositors_trusts_xdg_current_desktop_first(monkeypatch):
+    """The login manager sets $XDG_CURRENT_DESKTOP from the session file, so it
+    names this session even when another compositor process runs, such as a
+    nested one. Unset, the process table decides; Hyprland's package installs
+    both Hyprland and hyprland."""
+    from lib import ee_autostart
+    processes = [("hyprland", ["/usr/bin/Hyprland"]), ("sway", ["sway", "-c", "x"]),
+                 ("easyeffects", ["/usr/bin/easyeffects"])]
+    assert ee_autostart._session_compositors(processes) == {"Hyprland", "sway"}
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "GNOME")
+    assert ee_autostart._session_compositors(processes) == set()
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "sway:wlroots")
+    assert ee_autostart._session_compositors([]) == {"sway"}
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "hyprland")
+    assert ee_autostart._session_compositors([]) == {"Hyprland"}
+
+
+def test_own_processes_reads_pgrep_argv(monkeypatch):
+    import subprocess as sp
+    from lib import ee_autostart
+    monkeypatch.setattr(ee_autostart.tool_env, "run", lambda argv, **kw:
+        sp.CompletedProcess(argv, 0, stdout="12 Hyprland\n34 /usr/bin/easyeffects --service-mode\n"))
+    # /proc isn't readable under the test host root, so argv[0] names them.
+    assert ee_autostart.own_processes() == [
+        ("Hyprland", ["Hyprland"]),
+        ("easyeffects", ["/usr/bin/easyeffects", "--service-mode"])]
+
+    def no_pgrep(argv, **kw):
+        raise FileNotFoundError("pgrep")
+    monkeypatch.setattr(ee_autostart.tool_env, "run", no_pgrep)
+    assert ee_autostart.own_processes() == []
+
+
+@pytest.mark.parametrize("command, launches", [
+    ("easyeffects --service-mode --hide-window", True),
+    ("/usr/bin/easyeffects --service-mode", True),
+    ("--no-startup-id easyeffects", True),
+    ('"easyeffects" "--service-mode"', True),
+    ("pkill easyeffects; easyeffects --service-mode", True),
+    ("sh -c 'sleep 5 && easyeffects --service-mode'", True),
+    ("nohup easyeffects --service-mode &", True),
+    ("env GDK_BACKEND=x11 easyeffects", True),
+    ("pkill easyeffects", False),
+    ("easyeffects --quit", False),
+    ("easyeffects-preset-switcher", False),
+    ("/opt/easyeffects/bin/helper", False),
+    ("riverctl map normal Super E spawn easyeffects", False),
+    ("flatpak run com.github.wwmm.easyeffects --service-mode", True),
+    ("flatpak run --command=easyeffects com.github.wwmm.easyeffects", True),
+    ("flatpak run org.other.App", False),
+    ("uwsm app -- easyeffects --service-mode", True),
+    ("bash -lc 'easyeffects --service-mode'", True),
+    ("uwsm app -- com.github.wwmm.easyeffects.desktop", True),
+    ("uwsm app -s b -- easyeffects --service-mode", True),
+    ("uwsm-app -- easyeffects", True),
+    ("uwsm app -- firefox.desktop", False),
+    ("# easyeffects --service-mode", False),
+    ("easyeffects 'unbalanced", False),
+])
+def test_launches_easyeffects_reads_the_command_word(command, launches):
+    """Only a simple command whose executable is easyeffects counts, so a kill,
+    a quit, a keybind or a similarly named tool can't pass for a launch."""
+    from lib.ee_autostart import _easyeffects_argv
+    assert (_easyeffects_argv(command) is not None) is launches
+
+
+def test_service_mode_launch_reads_argv_from_pgrep(monkeypatch):
+    import subprocess as sp
+    from lib import ee_autostart as env
+
+    def fake_run(argv, **kw):
+        return sp.CompletedProcess(argv, 0,
+            stdout="5334 /usr/bin/easyeffects --hide-window --service-mode\n")
+    monkeypatch.setattr(env.tool_env, "run", fake_run)
+    assert service_mode_launch() is True
+    # home-manager's ExecStart for EasyEffects before 8.
+    monkeypatch.setattr(env.tool_env, "run", lambda argv, **kw: sp.CompletedProcess(
+        argv, 0, stdout="77 /nix/store/x/bin/easyeffects --gapplication-service\n"))
+    assert service_mode_launch() is True
+
+
+def test_service_mode_launch_false_without_flag_or_pgrep(monkeypatch):
+    import subprocess as sp
+    from lib import ee_autostart as env
+
+    monkeypatch.setattr(env.tool_env, "run", lambda argv, **kw:
+        sp.CompletedProcess(argv, 0, stdout="4242 /usr/bin/easyeffects\n"))
+    assert service_mode_launch() is False
+
+    def no_pgrep(argv, **kw):
+        raise FileNotFoundError("pgrep")
+    monkeypatch.setattr(env.tool_env, "run", no_pgrep)
+    assert service_mode_launch() is False
 
 
 def test_doctor_summary_counts():

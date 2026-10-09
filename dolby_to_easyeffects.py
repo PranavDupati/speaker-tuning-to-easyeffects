@@ -494,16 +494,19 @@ def _configure_autoload(args, autoload_preset: str) -> None:
 
         # Autoload only persists across logins if EasyEffects both starts at
         # login (autostart) and stays alive in the background (service mode).
-        # Nudge toward the prefs only when one is off, so the fully
-        # configured case stays quiet.
+        # Nudge only when the Background service check doesn't pass, so a
+        # configured or session-started EasyEffects stays quiet.
         try:
             _rc_text = ee_paths.DEFAULT_EASYEFFECTS_RC.read_text(encoding="utf-8")
         except OSError:
             _rc_text = ""
         _rc = autoload.read_ee_rc(_rc_text)
-        if not (_rc.get("autostart_on_login") and _rc.get("service_mode")):
-            console.cprint("warn", "  Tip: enable Background Service + Autostart on login in "
-                           "EasyEffects' preferences so this autoloads on every login.")
+        # The doctor's own sentence, so the run names what the check found.
+        _tip = doctor_run.background_service_tip(_rc)
+        if _tip:
+            console._cprint_wrapped("warn", f"  Tip: {_tip.detail}", indent="  ")
+            for _style, _text in _tip.steps:
+                console.cprint(_style, f"    {_text}")
 
 
 def _speaker_environment_findings(endpoint: str) -> list[Finding]:

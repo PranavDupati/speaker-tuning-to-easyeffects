@@ -297,6 +297,80 @@ def test_os_release_still_identifies_the_distro():
     assert report_speaker.get_distro_pretty_name()
 
 
+def test_xdg_autostart_still_finds_an_easyeffects_entry():
+    """Only where an EasyEffects autostart entry exists, judged by the reader's
+    own resolution and launch test: then the reader must find it."""
+    from lib import xdg
+    from lib import ee_autostart
+    launching = [p for p in ee_autostart._xdg_autostart_entries(
+                     xdg.config_home()).values()
+                 if ee_autostart._desktop_entry_words(
+                     ee_autostart._read_text(p), p.name)]
+    if not launching:
+        pytest.skip("no EasyEffects autostart entry on this machine")
+    launch = ee_autostart.background_launch_source()
+    assert launch.source or launch.is_toggle
+
+
+def test_service_mode_launch_still_reads_the_running_argv():
+    """pgrep -a's output, as service_mode_launch parses it, must agree with
+    the kernel's record of each running EasyEffects' arguments."""
+    from lib import ee_autostart
+    from lib import ee_socket
+    argvs = [(p / "cmdline").read_bytes().split(b"\0")
+             for p in _own_processes() if _comm(p) in ee_socket.PROCESS_NAMES]
+    if not argvs:
+        pytest.skip("EasyEffects isn't running")
+    expected = any({b"--service-mode", b"--gapplication-service"} & set(argv)
+                   for argv in argvs)
+    assert ee_autostart.service_mode_launch() is expected
+
+
+def test_active_targets_still_agree_with_systemds_own_state():
+    """systemctl --user is-active, as _active_targets parses it, must agree
+    with the ActiveState systemd reports for the same targets."""
+    from lib import ee_autostart
+    targets = {"graphical-session.target", "xdg-desktop-autostart.target",
+               "default.target"}
+    try:
+        out = subprocess.run(["systemctl", "--user", "show", "-p", "Id,ActiveState",
+                              *sorted(targets)], capture_output=True, text=True,
+                             timeout=5, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        pytest.skip("no systemd user manager")
+    state = dict(re.findall(r"Id=(\S+)\nActiveState=(\S+)", out))
+    expected = {t for t in targets if state.get(t) == "active"}
+    assert ee_autostart._active_targets(targets) == expected
+
+
+def test_session_processes_still_match_the_process_table(monkeypatch):
+    """pgrep -a over the EasyEffects and compositor names, as _own_processes
+    parses it, must agree with the kernel's process names for this user. With
+    $XDG_CURRENT_DESKTOP cleared, the process table is what decides."""
+    from lib import ee_autostart
+    monkeypatch.delenv("XDG_CURRENT_DESKTOP", raising=False)
+    expected = {ee_autostart._SESSION_PROCESSES[_comm(p)] for p in _own_processes()
+                if _comm(p) in ee_autostart._SESSION_PROCESSES}
+    assert ee_autostart._session_compositors(ee_autostart.own_processes()) == expected
+
+
+def _own_processes():
+    uid = os.getuid()
+    for proc in Path("/proc").iterdir():
+        try:
+            if proc.name.isdigit() and proc.stat().st_uid == uid:
+                yield proc
+        except OSError:
+            continue
+
+
+def _comm(proc) -> str:
+    try:
+        return (proc / "comm").read_text().strip()
+    except OSError:
+        return ""
+
+
 def test_the_kernel_release_still_reads_from_proc():
     assert host.kernel_release() == platform.release()
 
@@ -399,6 +473,11 @@ _HOST_LOCATIONS = {
     "/lib/firmware/updates": "test_module_and_firmware_trees_are_still_where_they_are_read",
     "/proc//stat": "test_pgrep_still_answers_for_a_running_process (process_age)",
     "/proc/uptime": "test_pgrep_still_answers_for_a_running_process (process_age)",
+    "/etc/xdg": "test_xdg_autostart_still_finds_an_easyeffects_entry",
+    "/etc/sway/config": "exempt: a shipped compositor config, parsed by the same readers the user-file tests cover",
+    "/etc/i3/config": "exempt: a shipped compositor config, parsed by the same readers the user-file tests cover",
+    "/etc/xdg/i3/config": "exempt: a shipped compositor config, parsed by the same readers the user-file tests cover",
+    "/etc/xdg/labwc/autostart": "exempt: a shipped compositor config, parsed by the same readers the user-file tests cover",
     "/var/lib/flatpak/app": "exempt: an existence check, nothing parsed",
     "/sys/class/firmware-attributes/thinklmi/attributes/MicrophoneAccess":
         "exempt: an existence check, nothing parsed",

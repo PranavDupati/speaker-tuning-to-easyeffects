@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from lib import ee_autostart
 from lib.doctor import DOCTOR_PASS, DOCTOR_UNKNOWN, DOCTOR_WARN, tag
 from lib.hardware import sinks
 from lib.preset.autoload import BYPASS_PRESET_NAME
@@ -53,6 +54,11 @@ _EXPECTED = {
     # A session-state scenario, same shape: healthy sink and preset, and what
     # it varies is the PipeWire clock the checks read.
     "graph-rate-too-high": ("speaker", True, DOCTOR_PASS),
+    # Startup-state scenarios (issue #117): healthy sink and preset, and what
+    # they vary is how EasyEffects gets started.
+    "session-launched": ("speaker", True, DOCTOR_PASS),
+    "service-mode-untraced": ("speaker", True, DOCTOR_PASS),
+    "compositor-toggle-only": ("speaker", True, DOCTOR_PASS),
 }
 
 
@@ -120,7 +126,7 @@ def test_registry_and_expectations_agree():
 def test_each_scenario_reaches_the_state_its_slug_promises(slug):
     kind, has_preset, _ = _EXPECTED[slug]
     spec = preview_doctor.SCENARIOS[slug]
-    with preview_doctor._scenario(slug) as (_out, _irs, autoload_dir):
+    with preview_doctor._scenario(slug) as (_out, _irs, autoload_dir, _rc):
         assert sinks.sink_kind(spec["default"]) == kind
         found = doctor_run._speaker_autoload_preset(autoload_dir)
         assert bool(found) is has_preset, found
@@ -149,7 +155,7 @@ def test_scenario_stages_the_presets_the_report_globs():
     too and every "is the loaded preset one of ours?" branch answered no —
     two scenarios rendered the wrong status under the right slug, and it
     passed on the one laptop that happened to have presets."""
-    with preview_doctor._scenario("output-speakers") as (out, irs, _autoload):
+    with preview_doctor._scenario("output-speakers") as (out, irs, _autoload, _rc):
         stems = {p.stem for p in out.glob("*.json")}
         assert stems == set(preview_doctor._PRESETS) | {BYPASS_PRESET_NAME}
         # Each preset's convolver must find its impulse, or the per-preset
@@ -231,20 +237,47 @@ def test_scenario_restores_every_probe_it_stubbed():
     the next one's answer — and the block map would still look right."""
     from lib.preset import autoload
     before = (sinks._enumerate_audio_sinks, sinks.live_session,
-              doctor_run._ee_query, autoload.read_ee_rc)
+              doctor_run._ee_query, autoload.read_ee_rc,
+              ee_autostart.background_launch_source,
+              ee_autostart.service_mode_launch, ee_autostart.own_processes)
     with preview_doctor._scenario("output-other-autoloaded"):
         assert sinks._enumerate_audio_sinks is not before[0]
         assert doctor_run._ee_query is not before[2]
+        assert ee_autostart.background_launch_source is not before[4]
     assert (sinks._enumerate_audio_sinks, sinks.live_session,
-            doctor_run._ee_query, autoload.read_ee_rc) == before
+            doctor_run._ee_query, autoload.read_ee_rc,
+            ee_autostart.background_launch_source,
+            ee_autostart.service_mode_launch, ee_autostart.own_processes) == before
 
 
 def test_scenario_restores_the_probes_even_when_the_body_raises():
     from lib.preset import autoload
     before = (sinks._enumerate_audio_sinks, sinks.live_session,
-              doctor_run._ee_query, autoload.read_ee_rc)
+              doctor_run._ee_query, autoload.read_ee_rc,
+              ee_autostart.background_launch_source,
+              ee_autostart.service_mode_launch, ee_autostart.own_processes)
     with pytest.raises(RuntimeError):
         with preview_doctor._scenario("output-speakers"):
             raise RuntimeError("boom")
     assert (sinks._enumerate_audio_sinks, sinks.live_session,
-            doctor_run._ee_query, autoload.read_ee_rc) == before
+            doctor_run._ee_query, autoload.read_ee_rc,
+            ee_autostart.background_launch_source,
+            ee_autostart.service_mode_launch, ee_autostart.own_processes) == before
+
+
+@pytest.mark.parametrize("slug, status", [
+    ("session-launched", DOCTOR_PASS),
+    ("service-mode-untraced", DOCTOR_UNKNOWN),
+    ("compositor-toggle-only", DOCTOR_UNKNOWN),
+])
+def test_startup_scenarios_render_their_background_service_status(
+        slug, status, capsys, monkeypatch):
+    """Issue #117: each scenario stages its own rc, so the Background service
+    check renders, and the status it reaches for, on a machine with no
+    EasyEffects install too."""
+    monkeypatch.setenv("COLUMNS", "80")
+    preview_doctor.render(slug)
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines()
+                if re.match(r"\s*\[.+\]\s+Background service", ln))
+    assert tag(status) in line, line
