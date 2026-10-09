@@ -6,7 +6,7 @@ Dolby Atmos DAX3 tuning XML shipped inside Windows audio drivers into
 speakers get the same speaker correction, EQ, and dynamics processing as on
 Windows, at zero added latency.
 
-Confirmed on over 40 laptops from ASUS, Framework and Lenovo: see
+Confirmed on over 40 laptops from ASUS, Framework, Lenovo and Microsoft: see
 [Supported devices](#supported-devices). Tested yours?
 [Report it](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml),
 whether it works or not.
