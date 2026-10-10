@@ -32,9 +32,51 @@ with `--windows` filled in on the rare occasions it's needed. Add `--autoload`,
 as in the README's [Quick start](../README.md#quick-start), to have EasyEffects
 apply the preset automatically.
 
-## Manual extraction, or from a Lenovo driver EXE without a Windows partition
+## From a vendor driver download
 
-To extract the XML manually, take it from the Windows driver package at:
+With no Windows partition, take the tuning from your model's audio driver,
+downloaded from the vendor's support site. On a Lenovo, the fetcher above does
+all of this for you.
+
+1. Download your model's audio driver. Not every audio download carries the
+   tuning: ASUS's codec, APO and smart-amp downloads carry none, and its Dolby
+   extension download does.
+2. Unpack the whole download into a folder of its own under this project
+   directory, such as `./driver-cache/framework-13`, with the tool for its
+   format. `MODEL` below stands for that folder's name:
+
+   | Download | Seen from | Unpack with |
+   |---|---|---|
+   | `.exe` installer | Lenovo | [`innoextract`](https://constexpr.org/innoextract/install) `-d ./driver-cache/MODEL FILE.exe` |
+   | `.exe` 7-Zip archive | Framework | `7z x -o./driver-cache/MODEL FILE.exe`, from your distribution's 7-Zip package |
+   | `.exe` with an archive inside | ASUS | `7z`, in two steps: see below |
+   | `.msi` | Microsoft Surface | `msiextract -C ./driver-cache/MODEL FILE.msi`, from your distribution's msitools package |
+   | `.zip` | Samsung | `unzip -d ./driver-cache/MODEL FILE.zip` |
+
+   If `innoextract` says the `.exe` is not an Inno Setup installer, try `7z x`.
+   An ASUS `.exe` holds its archive inside the program. Pull that out first,
+   then unpack it:
+
+   ```bash
+   7z x -tPE -o./driver-cache/MODEL FILE.exe .rsrc/ZIP/103
+   7z x -o./driver-cache/MODEL ./driver-cache/MODEL/.rsrc/ZIP/103
+   ```
+3. Run `python3 dolby_to_easyeffects.py` from the project root, with no path.
+   It finds the tuning folder wherever the vendor put it inside the download.
+
+Keep the whole unpacked tree rather than copying an XML out of it. On a
+Surface, Microsoft's own speaker tuning sits in a separate folder beside the
+Dolby one, and the run applies it only when it finds that folder.
+[corpus.md](corpus.md#publicly-downloadable-driver-packages) lists the
+downloads this has been tried on.
+
+If the run reports several matching folders, for example with several
+extracted driver trees, pass the one you want with `--windows`, as listed.
+
+## Picking the XML by hand
+
+The run finds the XML by itself in the cases above. Pick it yourself only to
+pass one file directly. On a Windows partition it is at:
 ```
 C:\Windows\System32\DriverStore\FileRepository\dax3_ext_*.inf_*\DEV_*_SUBSYS_*.xml
 ```
@@ -51,29 +93,6 @@ them too. The subsystem alone is not enough, because Lenovo reuses subsystem IDs
 across different codecs. Picking the other codec's tuning sounds clearly wrong.
 See the [details](cross-device-findings.md). You don't need the `_settings.xml`
 companion file, which contains UI/profile defaults.
-
-**From a Lenovo driver EXE.** Install
-[`innoextract`](https://constexpr.org/innoextract/install). Download the Lenovo
-audio driver EXE, for example `n4ba126w.exe`, into this project directory. Then
-run from the project root:
-
-```bash
-# 1. Extract only the Dolby tuning XMLs into ./driver-cache/
-innoextract -I 'code$GetExtractPath$/Dolby/03_dax_ext' -d ./driver-cache ./n4ba126w.exe
-
-# 2. Generate presets (autoprobe finds the extracted XMLs automatically)
-python3 dolby_to_easyeffects.py --autoload
-```
-
-If the autoprobe reports ambiguity, for example with several extracted driver
-trees, pass `--windows ./driver-cache` to point it at the one you want.
-
-## Surface devices
-
-Point the script at the whole extracted driver package, or let it find the
-Windows partition, rather than at an XML copied out on its own. Microsoft keeps
-the speaker's own tuning in a folder whose name starts with
-`surfaceapoextension`, beside the Dolby one, and the run finds it only there.
 
 ## How the script finds your XML and codec
 

@@ -51,7 +51,8 @@ repeat it as many times as needed:
   lists where the type-6/8 low-pass appears.
 - **`vendor-apo`.** On Surface devices, Microsoft tunes the speaker outside
   Dolby's file. The run finds that tuning in the driver package and applies it
-  by default ([Extracting the XML](getting-the-xml.md#surface-devices)). One
+  by default
+  ([Extracting the XML](getting-the-xml.md#from-a-vendor-driver-download)). One
   listener has heard it, and nobody has compared it with Windows
   ([reference](reference.md#validated-vs-unvalidated-mappings)). Report what you
   hear on
