@@ -27,11 +27,12 @@ What it does:
 3. Downloads the driver EXE into the repo's gitignored `driver-cache/` and
    verifies its SHA-256 against the catalog descriptor. `--driver-cache DIR`
    uses another cache directory.
-4. Runs `innoextract` to pull out the `DEV_*_SUBSYS_*.xml` tuning files. It
-   then prints that directory and the command to run next for each converter,
-   `dolby_to_easyeffects.py` and `dolby_to_pipewire.py`. Each command is bare
-   where the autoprobe would find the extraction on its own, and takes
-   `--windows DIR` where it wouldn't.
+4. Runs `innoextract` to pull out the `DEV_*_SUBSYS_*.xml` tuning files,
+   through the unpacker the converters use on a download passed in place of
+   the XML. It then prints that directory and the command to run next for
+   each converter, `dolby_to_easyeffects.py` and `dolby_to_pipewire.py`. Each
+   command is bare where the autoprobe would find the extraction on its own,
+   and takes `--windows DIR` where it wouldn't.
 
 Prerequisites: `innoextract`. If it's missing, the script names the package
 for your distro. The repo README lists the converters' own dependencies, such
@@ -41,5 +42,6 @@ Flags: `--windows-version {11,10,both}`, `--exe-url URL` to skip catalog
 resolution, `--machine-type MT`, `--driver-cache DIR`, `--keep-exe`,
 `--dry-run`.
 
-Other vendors aren't automated: see
-[docs/getting-the-xml.md](../../docs/getting-the-xml.md).
+Other vendors aren't automated, but their download can be passed to a
+converter as it is. See
+[From a vendor driver download](../../docs/getting-the-xml.md#from-a-vendor-driver-download).

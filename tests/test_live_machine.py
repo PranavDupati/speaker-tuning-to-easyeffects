@@ -428,6 +428,77 @@ def test_module_and_firmware_trees_are_still_where_they_are_read():
     assert isinstance(amps._list_firmware_files(["*"]), list)
 
 
+# --- the unpackers a driver download goes through (lib/driver_package.py) ---
+
+def test_innoextract_still_refuses_what_is_not_an_inno_installer(tmp_path):
+    """No Inno installer ships with the repo, so this pins the half of the
+    contract that can be checked anywhere: the version line names the tool,
+    and a non-Inno `.exe` lists as a failure rather than as an empty
+    installer."""
+    _need("innoextract")
+    from lib import driver_package
+    from tests.conftest import write_pe
+    assert driver_package._tool_version(
+        ["innoextract", "--version"]).startswith("innoextract")
+    assert driver_package._inno_open(write_pe(tmp_path / "x.exe")) is None
+
+
+def _sevenzip_or_skip() -> str:
+    from lib import driver_package
+    exe = driver_package._sevenzip()
+    if exe is None:
+        pytest.skip("not installed: 7z or 7zz")
+    return exe
+
+
+def test_7z_still_lists_type_sizes_and_links(tmp_path):
+    exe = _sevenzip_or_skip()
+    src = tmp_path / "src" / "Dolby"
+    src.mkdir(parents=True)
+    (src / "DEV_0274_SUBSYS_10EC1284.xml").write_text("<x/>")
+    os.symlink("/etc/hostname", src / "link")
+    archive = tmp_path / "t.7z"
+    subprocess.run([exe, "a", "-snl", str(archive), "Dolby"],
+                   cwd=tmp_path / "src", check=True, capture_output=True)
+    from lib import driver_package
+    kind, members = driver_package._7z_list(exe, archive)
+    assert kind == "7z"
+    by_path = {m.path: m for m in members}
+    assert by_path["Dolby/DEV_0274_SUBSYS_10EC1284.xml"].size == 4
+    assert by_path["Dolby/link"].link
+
+
+def test_msiextract_and_msiinfo_still_read_an_msi(tmp_path):
+    """A one-file .msi built with msitools' own msibuild, one table per
+    call: msiextract lists the file at its directory path, and msiinfo
+    exports the size the unpacker checks free space against."""
+    _need("msiextract", "msiinfo", "msibuild")
+    tables = {
+        "Directory": "Directory\tDirectory_Parent\tDefaultDir\n"
+                     "s72\tS72\tl255\nDirectory\tDirectory\n"
+                     "TARGETDIR\t\tSourceDir\nD1\tTARGETDIR\tdax3ext\n",
+        "Component": "Component\tComponentId\tDirectory_\tAttributes\t"
+                     "Condition\tKeyPath\ns72\tS38\ts72\ti2\tS255\tS72\n"
+                     "Component\tComponent\nC1\t"
+                     "{00000000-0000-0000-0000-000000000001}\tD1\t0\t\tF1\n",
+        "File": "File\tComponent_\tFileName\tFileSize\tVersion\tLanguage\t"
+                "Attributes\tSequence\ns72\ts72\tl255\ti4\tS72\tS20\tI2\t"
+                "i2\nFile\tFile\nF1\tC1\tDEV_0274_SUBSYS_10EC1284.xml\t5"
+                "\t\t\t\t1\n",
+    }
+    msi = tmp_path / "t.msi"
+    for name, text in tables.items():
+        (tmp_path / f"{name}.idt").write_text(text)
+        subprocess.run(["msibuild", str(msi), "-i", f"{name}.idt"],
+                       cwd=tmp_path, check=True, capture_output=True)
+    from lib import driver_package
+    opened = driver_package._msi_open(msi)
+    assert [m.path for m in opened.members] == [
+        "dax3ext/DEV_0274_SUBSYS_10EC1284.xml"]
+    assert opened.full_size == 5
+    assert opened.tool.startswith("msiextract ")
+
+
 # A tool with no test above, and why. Everything else lib/ runs must be named
 # in this file — the guard below reads the source for the quoted name.
 _NO_LIVE_CHECK = {

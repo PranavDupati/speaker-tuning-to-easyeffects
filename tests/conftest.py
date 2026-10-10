@@ -236,6 +236,44 @@ def no_live_machine(request, monkeypatch, _empty_host_root):
         "host.path(), or mark the test live_machine")
 
 
+@pytest.fixture(autouse=True)
+def no_checkout_driver_cache(monkeypatch, _empty_host_root):
+    """Driver downloads unpack into a cache of the test's own, never the
+    checkout's `driver-cache/`, which bare runs and the corpus tier walk.
+    A fresh path per test, created only by a test that unpacks something."""
+    import uuid
+    from lib import driver_package
+    monkeypatch.setenv(driver_package.CACHE_ENV, str(
+        _empty_host_root.parent / f"driver-cache-{uuid.uuid4().hex}"))
+
+
+def write_pe(path: Path, *, overlay: bytes = b"", rsrc: bytes = b"",
+             signed: bool = False) -> Path:
+    """A minimal PE32+ `.exe` with one `.rsrc` section, for the download
+    triage: *rsrc* is that section's bytes, *overlay* what follows the
+    image, and *signed* appends a certificate table after it, the way an
+    Authenticode-signed download ends."""
+    import struct
+    align = 0x200
+    raw = rsrc + b"\0" * (-len(rsrc) % align) if rsrc else b"\0" * align
+    cert = b"\x08\x00\x00\x00\x00\x02\x02\x00" + b"\0" * 24 if signed else b""
+    cert_off = align + len(raw) + len(overlay)
+    opt = bytearray(240)
+    struct.pack_into("<H", opt, 0, 0x20B)
+    if signed:
+        struct.pack_into("<II", opt, 112 + 8 * 4, cert_off, len(cert))
+    section = (b".rsrc\0\0\0" + struct.pack("<IIII", len(raw), 0x1000,
+                                             len(raw), align) + bytes(16))
+    coff = struct.pack("<HHIIIHH", 0x8664, 1, 0, 0, 0, len(opt), 0x22)
+    dos = bytearray(64)
+    dos[:2] = b"MZ"
+    struct.pack_into("<I", dos, 0x3C, 64)
+    head = bytes(dos) + b"PE\0\0" + coff + bytes(opt) + section
+    path.write_bytes(head + b"\0" * (align - len(head)) + raw + overlay
+                     + cert)
+    return path
+
+
 # Representative 20-band frequency table. Real DAX3 XMLs ship their own
 # `band_20_freq` element; this is a typical log-spaced set in the same
 # range, used purely as a non-proprietary stand-in.

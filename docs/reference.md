@@ -482,6 +482,13 @@ level cost at ≤1 dB
   - `woofer-regulator-*`
   - `band_20_freq` @ 44.1 kHz. The script is 48 kHz only.
   - `ieq-bands-set`. The script generates all three IEQ variants.
+- **Other driver-download shapes**: a `.cab`, an archive inside another
+  except in an ASUS-style `.exe`'s resources, which is followed one level
+  deep, and an already-unpacked folder passed in place of the XML. No download
+  in the corpus needs the first two, and `--windows DIR` covers the third. A
+  `.msi` is unpacked in full before only its tuning files are kept, since
+  `msiextract` has no member filter. For the Surface Pro 9 package that takes
+  about 3.5 GB of free space while it unpacks.
 
 ## The 48 kHz assumption
 

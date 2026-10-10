@@ -95,6 +95,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   Dolby's file, its Surface APO, by default. Heard as much better on one
   device; not compared with Windows. `--disable vendor-apo` leaves it out
   ([#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113)).
+- The converters take your laptop's audio driver download (`.exe`, `.msi` or
+  `.zip`) in place of the tuning XML, and unpack its tuning files themselves.
+  An `.exe` or `.msi` needs innoextract, 7-Zip or msitools installed.
 - Mark additional tested devices: ThinkPad X13 Gen 2 Intel (20WK)
   ([#105](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/105)),
   ThinkPad X13 Yoga Gen 1 (20SX)

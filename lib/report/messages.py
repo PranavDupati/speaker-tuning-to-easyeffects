@@ -313,7 +313,7 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         # cta, not ok: green is this run's "check passed, nothing to do"
         # color, and the one line that still demands a re-run read as "all
         # done" in the same green (round-2 color finding).
-        console.cprint("cta", f"Dry run — nothing was written. Re-run without "
+        console.cprint("cta", f"Dry run — no presets were written. Re-run without "
                       f"--dry-run to install these {len(preset_names)} presets:")
         # One comma-separated line, not one name per line (round 7): the
         # vertical list ate the last screen's budget.
@@ -578,7 +578,7 @@ def print_troubleshooting(findings: list[Finding],
         tail = (" Then reload the preset in EasyEffects to hear the change."
                 if installs_presets and not auto_reload and not dry_run else "")
         # Under --dry-run, "the same command you ran" would rebuild nothing:
-        # the reader is four lines from being told nothing was written.
+        # the reader is four lines from being told no presets were written.
         # Telling them to reload a preset that doesn't exist would read as the
         # two blocks not knowing about each other.
         # "the flags above", not "these": on a terminal whose window folds

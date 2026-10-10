@@ -25,6 +25,18 @@ index), packages.gentoo.org plus the ebuilds' ``IUSE``, and nixpkgs master.
 The LV2 build is the one that matters — the base ``lsp-plugins`` and ``calf``
 packages do not all ship the .lv2 bundle PipeWire loads.
 
+The unpacker rows (``INNOEXTRACT``, ``SEVENZIP``, ``MSITOOLS``) were checked on
+2026-10-10 against the same indexes, file lists included, since a package can
+exist without the binary a caller looks for: Debian 12's ``7zip`` ships only
+``7zz``, Debian 13's only ``7z``. The same day ``tools/unpack_distro_matrix.py``
+ran each printed command in a container, minus ``sudo``, and found the binary
+``lib/driver_package.py`` looks for on Debian 12 and stable, Ubuntu 24.04 and
+26.04, Fedora 44, Rocky 9 with EPEL, Arch, Alpine edge and openSUSE Leap 16.0.
+Rocky 9 without EPEL came back not installable for all three, as
+``_KNOWN_GAPS`` expects. Every row ships innoextract 1.9: its changelog adds
+Inno Setup 6.1.0, and installers from 6.1.2 on need 1.10. The NixOS and Gentoo
+rows went unchecked.
+
 The PipeWire LV2-loader rows (``PW_LV2_LOADER``) were checked end to end on
 2026-10-09 by ``tools/pw_distro_matrix.py``: a stock PipeWire probed in a
 container, the printed command run, and the probe asked again. Fedora 44,
@@ -75,17 +87,6 @@ _INSTALL = {
 }
 
 
-def install_verb(fam: str) -> str:
-    """The install-command prefix for `fam`, or "" when it has none.
-
-    "" covers NixOS (no imperative install verb — see `_nixos_command`) and an
-    unrecognised family. Exposed so a caller with its own out-of-tree package
-    (`tools/fetch_driver`'s `innoextract`) reuses the per-family verb instead
-    of copying this table and drifting from it.
-    """
-    return _INSTALL.get(fam, "")
-
-
 # The families whose install idiom really is "<prefix> <names>". NixOS is the
 # one that isn't, and every invariant below that assumes a pasteable command
 # is checked against this rather than `FAMILIES`.
@@ -104,6 +105,10 @@ NUMPY = "numpy"
 SCIPY = "scipy"
 RICH = "rich"
 RICH_ARGPARSE = "rich-argparse"
+# The unpackers `lib/driver_package.py` runs on a vendor's driver download.
+INNOEXTRACT = "innoextract"
+SEVENZIP = "7zip"
+MSITOOLS = "msitools"
 
 PYTHON_KEYS = (NUMPY, SCIPY, RICH, RICH_ARGPARSE)
 
@@ -113,7 +118,8 @@ PYTHON_KEYS = (NUMPY, SCIPY, RICH, RICH_ARGPARSE)
 # any shell this tool could suggest, so on NixOS they get a note about
 # `environment.systemPackages` instead of a command. The distinction only
 # matters there; every other family installs into the system either way.
-NIX_SHELL_KEYS = PYTHON_KEYS + (LV2INFO, ALSA_UTILS)
+NIX_SHELL_KEYS = PYTHON_KEYS + (LV2INFO, ALSA_UTILS, INNOEXTRACT, SEVENZIP,
+                                MSITOOLS)
 
 _NAMES = {
     LSP_LV2: {DEBIAN: "lsp-plugins-lv2", FEDORA: "lsp-plugins-lv2",
@@ -185,16 +191,28 @@ _NAMES = {
                     ARCH: "python-rich-argparse",
                     GENTOO: "dev-python/rich-argparse",
                     NIXOS: "rich-argparse"},
+    INNOEXTRACT: {DEBIAN: "innoextract", FEDORA: "innoextract",
+                  SUSE: "innoextract", ARCH: "innoextract",
+                  ALPINE: "innoextract", GENTOO: "app-arch/innoextract",
+                  NIXOS: "innoextract"},
+    # `7zip` ships `7z` on Debian 13, Ubuntu 24.04+, Fedora, Arch and Alpine,
+    # but only `7zz` on Debian 12, and nixpkgs' `_7zz` only `7zz`: the
+    # unpacker looks for either name, so one package name serves them all.
+    SEVENZIP: {DEBIAN: "7zip", FEDORA: "7zip", SUSE: "7zip", ARCH: "7zip",
+               ALPINE: "7zip", GENTOO: "app-arch/7zip", NIXOS: "_7zz"},
+    # No Gentoo row: msitools is not in Gentoo's main tree.
+    MSITOOLS: {DEBIAN: "msitools", FEDORA: "msitools", SUSE: "msitools",
+               ARCH: "msitools", ALPINE: "msitools", NIXOS: "msitools"},
 }
 
 ALL_KEYS = tuple(_NAMES)
 
 # Keys every command family must name — a half-filled row here is a message
-# that covers five distributions and silently drops the sixth. Only the two
+# that covers five distributions and silently drops the sixth. Only the keys
 # without a single exempt family qualify; the rest each owe the reader a line
 # saying where the thing comes from instead, via `UNPACKAGED` below.
 COMPLETE_KEYS = (LSP_LV2, LV2INFO, ALSA_UTILS, EASYEFFECTS, NUMPY, SCIPY,
-                 RICH)
+                 RICH, INNOEXTRACT, SEVENZIP)
 
 # What to say when a family has no package for a key. A gap has to be spoken:
 # dropping the key silently turns "install these two" into a command that
@@ -219,6 +237,9 @@ UNPACKAGED = {
     (SPA_TOOLS, GENTOO): _PW_OWN.format("spa-json-dump"),
     (PW_TOOLS, NIXOS): _PW_OWN.format("pw-cli and pw-dump"),
     (SPA_TOOLS, NIXOS): _PW_OWN.format("spa-json-dump"),
+    (MSITOOLS, GENTOO): "msitools is not in Gentoo's main tree — unpack the "
+                        ".msi on another machine, copy the whole unpacked "
+                        "folder here, and pass the XML inside it",
 }
 
 # What to say where no package name for PipeWire's LV2 loader can be printed:
@@ -462,7 +483,9 @@ def available_version_cmd(key, fam: str) -> list[str] | None:
 # 21/22 and Pop!_OS built on them, have no python3-rich-argparse. RHEL, Rocky
 # and Alma get python3-rich and python3-rich-argparse only from EPEL, and
 # EPEL 8 has no rich-argparse. openSUSE Leap 16.0 has rich but no
-# rich-argparse, and no scipy at all. apt and dnf abort the whole install
+# rich-argparse, and no scipy at all. On RHEL, Rocky and Alma, innoextract
+# and msitools come from EPEL 8 and 9, 7zip from EPEL 9 and 10, and EL10 has
+# no innoextract or msitools at all. apt and dnf abort the whole install
 # over one name they cannot find. So the machine is asked before one of these
 # names is printed, rather than given a per-release table that goes stale
 # with the next release. Only these: an answer can be wrong in ways that cost
@@ -470,7 +493,8 @@ def available_version_cmd(key, fam: str) -> list[str] | None:
 # that never ran `apt update` saying it has no numpy.
 _KNOWN_GAPS = {
     DEBIAN: (RICH_ARGPARSE, PW_LV2_LOADER),
-    FEDORA: (RICH, RICH_ARGPARSE, PW_LV2_LOADER),
+    FEDORA: (RICH, RICH_ARGPARSE, PW_LV2_LOADER, INNOEXTRACT, SEVENZIP,
+             MSITOOLS),
     SUSE: (RICH_ARGPARSE, SCIPY),
 }
 

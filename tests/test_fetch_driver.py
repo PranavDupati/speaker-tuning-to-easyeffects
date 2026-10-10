@@ -5,11 +5,12 @@ No network: `_get` is monkeypatched to serve canned catalog / descriptor XML.
 
 import hashlib
 import re
-import subprocess
 
 import pytest
 
+from lib import driver_package, packages
 from lib.hardware import codecs
+from tests.conftest import write_pe
 from tools.fetch_driver import get_lenovo_dax_xml as g
 
 CATALOG = """<?xml version="1.0"?>
@@ -215,11 +216,17 @@ def test_machine_type_empty_when_not_lenovo(monkeypatch):
     assert g.machine_type() == ""
 
 
+def _inno_exe(tmp_path):
+    """An .exe whose overlay carries Inno Setup's data marker, so the
+    unpacker names innoextract when no tool can open it."""
+    return write_pe(tmp_path / "x.exe", overlay=b"Inno Setup Setup Data (6.1.0)",
+                    signed=True)
+
+
 def test_extract_without_innoextract_names_the_package(tmp_path, monkeypatch):
-    monkeypatch.setattr(g.shutil, "which", lambda _: None)
-    monkeypatch.setattr(g.packages, "family", lambda: g.packages.DEBIAN)
+    monkeypatch.setattr(packages, "family", lambda: packages.DEBIAN)
     with pytest.raises(g.Fail, match=r"sudo apt install innoextract"):
-        g.extract(tmp_path / "x.exe", tmp_path)
+        g.extract(_inno_exe(tmp_path), tmp_path / "cache")
 
 
 def test_tuning_xml_dir_finds_the_one_dolby_dir(tmp_path):
@@ -231,7 +238,7 @@ def test_tuning_xml_dir_finds_the_one_dolby_dir(tmp_path):
 
 
 def test_tuning_xml_dir_errors_when_nothing_extracted(tmp_path):
-    with pytest.raises(g.Fail, match="no Dolby DAX3 tuning"):
+    with pytest.raises(g.Fail, match="holds no tuning XML"):
         g.tuning_xml_dir(tmp_path)
 
 
@@ -316,41 +323,33 @@ def test_a_per_sku_fan_out_resolves_to_this_machine(tmp_path, monkeypatch):
     assert g.tuning_xml_dir(tmp_path) == dirs["17AA380F"]
 
 
-def test_a_fan_out_that_matches_nothing_still_names_every_directory(tmp_path,
-                                                                    monkeypatch):
+def test_a_fan_out_that_matches_nothing_picks_none(tmp_path, monkeypatch):
     """Narrowing that finds nothing must not silently pick one."""
     _fan_out(tmp_path, ["17AA380F", "17AA5094"])
     monkeypatch.setattr(
         codecs, "get_hda_codec_ids", lambda: [("10EC0257", "17AA9999", "ALC257")])
     monkeypatch.setattr(codecs, "get_pci_audio_subsystem", lambda: None)
-    with pytest.raises(g.Fail, match="more than one directory") as excinfo:
+    with pytest.raises(g.Fail, match="None of the 2 tuning folders"):
         g.tuning_xml_dir(tmp_path)
-    assert "sku_17AA380F" in str(excinfo.value)
-    assert "sku_17AA5094" in str(excinfo.value)
 
 
-def test_an_extraction_of_only_companions_retries_unfiltered(tmp_path,
-                                                             monkeypatch):
-    """`_settings`/`_dmic` companions are not tuning XMLs. Judging the filtered
-    pass by "any .xml" called it a success and skipped the retry that would
-    have found the real files."""
+def test_extract_goes_through_the_converters_unpacker(tmp_path, monkeypatch):
+    """One unpacker for the fetcher and the converters, and the fetcher's old
+    `extract/` tree goes: left in place, it would be a second copy of the
+    same tunings, and a bare converter run would stop at the choice."""
+    cache = tmp_path / "cache"
+    (cache / "extract" / "Dolby").mkdir(parents=True)
     calls = []
 
-    def fake_run(cmd, **kw):
-        calls.append(cmd)
-        out = tmp_path / "cache" / "extract"
-        out.mkdir(parents=True, exist_ok=True)
-        if "-I" in cmd:                      # filtered pass: companions only
-            (out / "DEV_0257_SUBSYS_17AA5094_dmic.xml").write_text("<x/>")
-        else:                                # unfiltered retry: the real thing
-            (out / "DEV_0257_SUBSYS_17AA5094.xml").write_text("<x/>")
-        return subprocess.CompletedProcess(cmd, 0, "", "")
+    def fake_unpack(exe, cache_root=None):
+        calls.append((exe, cache_root))
+        return cache_root / "x-0123456789ab"
 
-    monkeypatch.setattr(g.shutil, "which", lambda _: "/usr/bin/innoextract")
-    monkeypatch.setattr(g.subprocess, "run", fake_run)
-    out = g.extract(tmp_path / "d.exe", tmp_path / "cache")
-    assert len(calls) == 2, "the unfiltered retry never ran"
-    assert g.tuning_xml_dir(out).name == "extract"
+    monkeypatch.setattr(driver_package, "unpack", fake_unpack)
+    exe = tmp_path / "d.exe"
+    assert g.extract(exe, cache) == cache / "x-0123456789ab"
+    assert calls == [(exe, cache)]
+    assert not (cache / "extract").exists()
 
 
 def test_a_subsystem_two_sku_dirs_share_stays_ambiguous(tmp_path, monkeypatch):
@@ -364,7 +363,7 @@ def test_a_subsystem_two_sku_dirs_share_stays_ambiguous(tmp_path, monkeypatch):
     monkeypatch.setattr(
         codecs, "get_hda_codec_ids", lambda: [("10EC0257", "17AA382B", "ALC257")])
     monkeypatch.setattr(codecs, "get_pci_audio_subsystem", lambda: None)
-    with pytest.raises(g.Fail, match="more than one directory"):
+    with pytest.raises(g.Fail, match="in 2 folders"):
         g.tuning_xml_dir(tmp_path)
 
 
@@ -391,10 +390,9 @@ def test_hdmi_codecs_are_not_offered_to_the_catalog():
 ])
 def test_a_missing_innoextract_names_the_command_for_this_distro(
         tmp_path, monkeypatch, fam, expect):
-    monkeypatch.setattr(g.shutil, "which", lambda _: None)
-    monkeypatch.setattr(g.packages, "family", lambda *a, **k: fam)
+    monkeypatch.setattr(packages, "family", lambda *a, **k: fam)
     with pytest.raises(g.Fail, match=re.escape(expect)):
-        g.extract(tmp_path / "d.exe", tmp_path / "cache")
+        g.extract(_inno_exe(tmp_path), tmp_path / "cache")
 
 
 def _extracted(root, subsys="17AA22E6", where="driver-cache/extract"):

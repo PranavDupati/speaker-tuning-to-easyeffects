@@ -143,6 +143,19 @@ def infs_below(root: Path) -> list[Path]:
     return infs
 
 
+def wanted_members(paths: list[str]) -> set[str]:
+    """The archive members `find` reads, out of a download's file list.
+
+    Every file in a folder that holds a Surface APO `.inf`: the config's name
+    comes from that `.inf`'s AddReg, not from a pattern, so the whole folder
+    is kept. Paths are the archive's own, `/`-separated.
+    """
+    folders = {p.rpartition("/")[0] for p in paths
+               if p.rpartition("/")[2].lower().startswith(_INF_PREFIX)
+               and p.lower().endswith(".inf")}
+    return {p for p in paths if p.rpartition("/")[0] in folders}
+
+
 def _infs_in(folder: Path) -> list[Path]:
     try:
         return [f for f in folder.iterdir() if f.suffix.lower() == ".inf"

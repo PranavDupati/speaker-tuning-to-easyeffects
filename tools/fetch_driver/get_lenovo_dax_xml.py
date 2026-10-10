@@ -7,8 +7,9 @@ that means hand-downloading the OEM driver EXE and running innoextract. This
 script does that step and stops there: it reads the machine type and audio
 codec IDs from sysfs, resolves the matching audio-driver package from Lenovo's
 public update catalog, downloads and checksum-verifies the EXE, extracts the
-Dolby tuning XMLs into the repo's driver-cache/, and prints the directory to
-hand to whichever converter you want to run.
+Dolby tuning XMLs into the repo's driver-cache/ (lib/driver_package.py, the
+same unpacker the converters use on a download passed in place of the XML),
+and prints the directory to hand to whichever converter you want to run.
 
 Lenovo only, for now. Other vendors: see docs/getting-the-xml.md.
 
@@ -23,7 +24,6 @@ import hashlib
 import re
 import shlex
 import shutil
-import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from lib import packages  # noqa: E402
+from lib import driver_package  # noqa: E402
 from lib.dax import discover  # noqa: E402
 from lib.hardware import codecs  # noqa: E402
 
@@ -43,17 +43,6 @@ UA = "Mozilla/5.0 (X11; Linux x86_64) get_lenovo_dax_xml/1"
 DOLBY_APO_HWID = "VEN_DOLBY&PID_DAX3"
 # Package-name prefixes that are dock / USB audio, not the internal codec.
 _NOT_INTERNAL = ("DOCK_", "AUDIO_U3AUD")
-
-# innoextract's package name per family (no row in lib/packages.py — it is not
-# a dependency of the converters, only of this helper). The install *verb* is
-# not ours to keep: `packages.install_verb` owns it, one table for every
-# caller.
-_INNOEXTRACT = {
-    packages.DEBIAN: "innoextract", packages.FEDORA: "innoextract",
-    packages.SUSE: "innoextract", packages.ARCH: "innoextract",
-    packages.ALPINE: "innoextract", packages.GENTOO: "app-arch/innoextract",
-    packages.NIXOS: "innoextract",
-}
 
 
 class Fail(RuntimeError):
@@ -271,65 +260,38 @@ def download(url: str, dest: Path, expect_sha: str) -> Path:
     return dest
 
 
+def _as_fail(e: driver_package.PackageError) -> Fail:
+    """The unpacker's error as this script's, its remedy lines kept."""
+    steps = getattr(e, "next_step", None) or ()
+    if isinstance(steps, str):
+        steps = (("cta", steps),) if steps else ()
+    return Fail("\n  ".join([str(e), *(text for _s, text in steps)]))
+
+
 def extract(exe: Path, cache: Path) -> Path:
-    """Unpack *exe* into ``cache/extract`` and return that directory."""
-    if not shutil.which("innoextract"):
-        fam = packages.family()
-        verb = packages.install_verb(fam)
-        pkg = _INNOEXTRACT.get(fam)
-        if fam == packages.NIXOS and pkg:
-            # innoextract is exec'd by this process, which is exactly what a
-            # nix-shell reaches — the NIX_SHELL_KEYS rationale in lib/packages.py.
-            hint = f"nix-shell -p {pkg}"
-        elif verb and pkg:
-            hint = f"{verb} {pkg}"
-        else:
-            hint = "install 'innoextract' from your distribution"
-        raise Fail(f"innoextract is required to unpack {exe.name}\n  {hint}")
-    out = cache / "extract"
-    if out.exists():
-        shutil.rmtree(out)
-    dolby_filter = "code$GetExtractPath$/Dolby/03_dax_ext"
-    base = ["innoextract", "-s", "-d", str(out)]
-    subprocess.run(base + ["-I", dolby_filter, str(exe)],
-                   check=False, capture_output=True)
-    # Judged by the same filter that reads the result: a directory holding only
-    # `_settings`/`_dmic` companions has no tuning XML, and retrying unfiltered
-    # is exactly what that case needs.
-    if not discover.walk_for_dolby_xml_dirs(out):  # filter missed this layout
-        shutil.rmtree(out, ignore_errors=True)
-        r = subprocess.run(base + [str(exe)], capture_output=True, text=True)
-        if r.returncode != 0:
-            raise Fail(f"innoextract failed:\n{r.stderr.strip()}")
-    return out
+    """Unpack *exe*'s tuning files under *cache* and return that tree."""
+    # The directory this script unpacked into before it shared the
+    # converters' unpacker. Left behind, it would be a second copy of the
+    # same tunings, and a bare converter run would stop at the choice.
+    shutil.rmtree(cache / "extract", ignore_errors=True)
+    try:
+        return driver_package.unpack(exe, cache_root=cache)
+    except driver_package.PackageError as e:
+        raise _as_fail(e)
 
 
-def tuning_xml_dir(extract_root: Path) -> Path:
-    """The single directory of Dolby tuning XMLs under a fresh extraction.
+def tuning_xml_dir(extract_root: Path, exe: Path | None = None) -> Path:
+    """The directory of this machine's Dolby tuning XMLs in an unpacked tree.
 
-    Reuses ``lib/dax/discover`` so the "which files count" question is
-    answered once, in the same place the converters answer it — and scoped to
-    ``extract_root`` so a hand-run ``innoextract -d ./driver-cache`` elsewhere
-    in the cache can't add a second copy.
+    The converters' own choice (`driver_package.tuning_dir`), so a download
+    passed to a converter and the same download fetched here land on the same
+    folder. Some installers (Legion Y540-15IRH, say) fan out into a directory
+    per SKU, and picking the first would be picking another laptop's tuning.
     """
-    dirs = discover.walk_for_dolby_xml_dirs(extract_root)
-    if not dirs:
-        raise Fail(f"unpacked {extract_root} but found no Dolby DAX3 tuning "
-                   "XML in it. Look inside and pass a file to the converter "
-                   "directly.")
-    if len(dirs) > 1:
-        # Some installers (Legion Y540-15IRH, say) fan out into a directory
-        # per SKU. Picking the first would be picking another laptop's tuning,
-        # so narrow to the one holding an XML for this machine.
-        narrowed = discover.dirs_for_this_machine(dirs)
-        if len(narrowed) == 1:
-            return narrowed[0]
-        dirs = narrowed or dirs
-    if len(dirs) > 1:
-        raise Fail("Dolby tuning XMLs landed in more than one directory:\n  "
-                   + "\n  ".join(str(d) for d in dirs)
-                   + "\npass one to the converter's --windows yourself.")
-    return dirs[0]
+    try:
+        return driver_package.tuning_dir(extract_root, exe or extract_root)
+    except driver_package.PackageError as e:
+        raise _as_fail(e)
 
 
 # --- driver ---------------------------------------------------------------
@@ -430,11 +392,11 @@ def run(args: argparse.Namespace) -> int:
 
     if args.dry_run:
         print("\n-- dry run, nothing written --")
-        print("would extract Dolby tuning XMLs into:", cache / "extract")
+        print("would extract Dolby tuning XMLs into a folder under:", cache)
         return 0
 
     download(exe_url, exe, sha)
-    xml_dir = tuning_xml_dir(extract(exe, cache))
+    xml_dir = tuning_xml_dir(extract(exe, cache), exe)
     if not args.keep_exe:
         exe.unlink(missing_ok=True)
 

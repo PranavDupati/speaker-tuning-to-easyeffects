@@ -52,25 +52,31 @@ PipeWire filter-chain, with no GUI and no extra daemon. See
    Then install the dependencies listed under [Install](#install). In short:
    Python 3 with NumPy and SciPy.
 
-3. Run the script.
+3. Run the script, with the line that matches where your tuning is:
 
-   No Windows partition? [Get the tuning XML](docs/getting-the-xml.md)
-   first.
+   - **A Windows partition is mounted**, or a driver package is unpacked in
+     the current directory. The script finds the tuning itself:
 
-   The script needs no path if your Windows partition is mounted or a driver
-   package is extracted in the current directory:
+     ```bash
+     python3 dolby_to_easyeffects.py --autoload
+     ```
 
-   ```bash
-   python3 dolby_to_easyeffects.py --autoload
-   ```
+   - **No Windows.** Download your laptop's audio driver from its maker's
+     support site and pass the file. The script unpacks the tuning from it,
+     and names the tool to install if it needs one.
+     [Extracting the XML](docs/getting-the-xml.md) says which downloads carry
+     the tuning, and has a fetcher that downloads a Lenovo's for you:
 
-   Or point it at the Windows directory, extracted driver package or a tuning
-   XML:
+     ```bash
+     python3 dolby_to_easyeffects.py ~/Downloads/your-audio-driver.exe --autoload
+     ```
 
-   ```bash
-   python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows --autoload
-   python3 dolby_to_easyeffects.py path/to/DEV_0287_SUBSYS_*.xml --autoload
-   ```
+   - **You know where it is**: a Windows directory, or the tuning XML itself:
+
+     ```bash
+     python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows --autoload
+     python3 dolby_to_easyeffects.py path/to/DEV_0287_SUBSYS_*.xml --autoload
+     ```
 
 `--autoload` sets EasyEffects to apply the Dolby correction on your internal
 speaker automatically. Skip it if you'd rather select Dolby-Balanced,

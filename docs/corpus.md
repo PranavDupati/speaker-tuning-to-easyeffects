@@ -93,11 +93,11 @@ also ship in one of the public packages below.
 
 Each was downloaded as a self-extracting installer from the vendor's support
 site and unpacked with
-[`innoextract`](https://constexpr.org/innoextract/install). Three vendors are
+[`innoextract`](https://constexpr.org/innoextract/install). Four vendors are
 exceptions. `7z x` opens Framework's `.exe`. ASUS's `.exe` holds a 7z archive
-that `7z x -tPE` pulls out first. `msiextract` from msitools unpacks
-Microsoft's Surface `.msi`s. The layout inside varies, so there
-is no fixed path to the tunings: `Source/Dolby/…`, `Source/ThirdParty/…`,
+that `7z x -tPE` pulls out first. `msiextract` from msitools unpacks Microsoft's
+Surface `.msi`s. Samsung's download is a `.zip`. The layout inside varies, so
+there is no fixed path to the tunings: `Source/Dolby/…`, `Source/ThirdParty/…`,
 `Dolby/…`, and Samsung's `APO/Dolby/` with the `.inf` flat beside the tunings.
 The last column records **which download the package came from**, not a claim
 about that model.

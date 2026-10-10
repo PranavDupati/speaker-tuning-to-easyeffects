@@ -638,7 +638,7 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
     # thing they chose this path to avoid. The only link in the run points
     # there, so one clause says their report belongs here too.
     if dry_run:
-        # Just the pointer. That nothing was written is said immediately
+        # Just the pointer. That nothing was installed is said immediately
         # above by whoever ran the dry run: print_what_now here, the [3/3]
         # banner under dolby_to_pipewire.py. Saying it twice in
         # consecutive sentences reads like a stutter.

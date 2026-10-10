@@ -35,43 +35,56 @@ apply the preset automatically.
 ## From a vendor driver download
 
 With no Windows partition, take the tuning from your model's audio driver,
-downloaded from the vendor's support site. On a Lenovo, the fetcher above does
-all of this for you.
+downloaded from the vendor's support site. On a Lenovo, the fetcher above finds
+and downloads it for you.
 
 1. Download your model's audio driver. Not every audio download carries the
    tuning: ASUS's codec, APO and smart-amp downloads carry none, and its Dolby
    extension download does.
-2. Unpack the whole download into a folder of its own under this project
-   directory, such as `./driver-cache/framework-13`, with the tool for its
-   format. `MODEL` below stands for that folder's name:
+2. Install the tool its format needs. If one is missing, the run names it, and
+   says how to install it where your distribution packages it.
 
-   | Download | Seen from | Unpack with |
+   | Download | Seen from | Needs |
    |---|---|---|
-   | `.exe` installer | Lenovo | [`innoextract`](https://constexpr.org/innoextract/install) `-d ./driver-cache/MODEL FILE.exe` |
-   | `.exe` 7-Zip archive | Framework | `7z x -o./driver-cache/MODEL FILE.exe`, from your distribution's 7-Zip package |
-   | `.exe` with an archive inside | ASUS | `7z`, in two steps: see below |
-   | `.msi` | Microsoft Surface | `msiextract -C ./driver-cache/MODEL FILE.msi`, from your distribution's msitools package |
-   | `.zip` | Samsung | `unzip -d ./driver-cache/MODEL FILE.zip` |
+   | `.exe` installer | Lenovo | [`innoextract`](https://constexpr.org/innoextract/install) |
+   | `.exe` 7-Zip archive | Framework | 7-Zip |
+   | `.exe` with an archive inside | ASUS | 7-Zip |
+   | `.msi` | Microsoft Surface | msitools |
+   | `.zip` | Samsung | nothing |
 
-   If `innoextract` says the `.exe` is not an Inno Setup installer, try `7z x`.
-   An ASUS `.exe` holds its archive inside the program. Pull that out first,
-   then unpack it:
+3. From the project root, pass the download in place of the XML:
 
    ```bash
-   7z x -tPE -o./driver-cache/MODEL FILE.exe .rsrc/ZIP/103
-   7z x -o./driver-cache/MODEL ./driver-cache/MODEL/.rsrc/ZIP/103
+   python3 dolby_to_easyeffects.py ~/Downloads/FILE.exe
    ```
-3. Run `python3 dolby_to_easyeffects.py` from the project root, with no path.
-   It finds the tuning folder wherever the vendor put it inside the download.
 
-Keep the whole unpacked tree rather than copying an XML out of it. On a
-Surface, Microsoft's own speaker tuning sits in a separate folder beside the
-Dolby one, and the run applies it only when it finds that folder.
-[corpus.md](corpus.md#publicly-downloadable-driver-packages) lists the
-downloads this has been tried on.
+The run unpacks only the tuning files, into a folder of its own under
+`driver-cache/`, then picks your laptop's tuning there. On a Surface whose
+download carries Microsoft's own speaker tuning, in a folder beside the Dolby
+one, it keeps and applies that too. The folder's `PROVENANCE.txt` names the
+download and lists the files kept. A later run with the same download reuses
+the folder.
 
-If the run reports several matching folders, for example with several
-extracted driver trees, pass the one you want with `--windows`, as listed.
+If the download holds no tuning file, the run says so and writes nothing. If it
+reports several matching folders, run the same command again with the
+`--windows` line it lists in place of the download.
+[corpus.md](corpus.md#publicly-downloadable-driver-packages) lists the vendor
+downloads this project's tunings come from.
+
+To unpack a download yourself, for example on another machine, unpack all of it
+into a folder under the project, then run the converter with no path:
+
+```bash
+innoextract -d ./driver-cache/MODEL FILE.exe                # Lenovo
+7z x -o./driver-cache/MODEL FILE.exe                         # Framework
+7z x -tPE -o./driver-cache/MODEL FILE.exe .rsrc/ZIP/103      # ASUS, then
+7z x -o./driver-cache/MODEL ./driver-cache/MODEL/.rsrc/ZIP/103
+msiextract -C ./driver-cache/MODEL FILE.msi                  # Surface
+unzip -d ./driver-cache/MODEL FILE.zip                       # Samsung
+```
+
+Keep the whole unpacked tree rather than copying an XML out of it, so a
+Surface's speaker tuning stays beside the Dolby folder.
 
 ## Picking the XML by hand
 

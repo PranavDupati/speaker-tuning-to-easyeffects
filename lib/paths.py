@@ -9,16 +9,19 @@ hops, and each of those is a silent breakage waiting for the next move.
 So the walk-up is written once, here, and everything else asks. Stdlib-only,
 like the rest of what ``ee_to_pipewire.py`` imports at startup.
 
-**Nothing asks.** The scripts under ``tools/`` each walk up from their own
-depth, because they also insert the result into ``sys.path`` before any
-``lib`` import can happen. So this module is the place for the next such path,
-not something the code depends on. Read the emptiness as that, rather than as
-a caller you have not found yet: docs/code-organisation.md "The rules that
-keep provenance".
+One caller: ``lib/driver_package.py``, whose default download cache is the
+checkout's ``driver-cache/``. The scripts under ``tools/`` each walk up from
+their own depth instead, because they also insert the result into
+``sys.path`` before any ``lib`` import can happen: docs/code-organisation.md
+"The rules that keep provenance".
 
-This is a *source* path, not a data path: it points at the checkout a user
-cloned or unzipped, which is the only place these files exist. Nothing is
-installed, so there is no prefix to search and no fallback to make.
+It is the checkout a user cloned or unzipped, the only place the files that
+ship with the code exist. Nothing is installed, so there is no prefix to
+search and no fallback to make. Its one data use is the download cache,
+``driver-cache/`` (gitignored): kept in the checkout rather than under
+``$XDG_CACHE_HOME`` so that a bare run from the project root finds what an
+earlier run unpacked, through the same probe that finds a hand-unpacked
+download there.
 """
 
 from pathlib import Path

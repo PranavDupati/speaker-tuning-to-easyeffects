@@ -200,7 +200,10 @@ shares their definitions with `dolby_to_easyeffects.py` for generation and
 neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 `/proc/mounts` and the current directory.
 - `xml_file` — optional positional path to the Dolby DAX3 tuning XML, such as
-  `DEV_0287_SUBSYS_*.xml`
+  `DEV_0287_SUBSYS_*.xml`, or to your laptop's audio driver download (`.exe`,
+  `.msi` or `.zip`). The run unpacks a download's tuning files into
+  `driver-cache/`. See
+  [Extracting the XML](getting-the-xml.md#from-a-vendor-driver-download).
 - `--windows DIR` — auto-discover the tuning XML from a mounted Windows
   directory, by matching the audio codec subsystem ID from `/proc/asound`
 - `--best-guess` — on a SoundWire machine, fall back to a manufacturer-matched
@@ -257,8 +260,9 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 - `--verbose` (alias `-v`) — print the generator's full frequency tables; same
   as `dolby_to_easyeffects.py`
 - `--dry-run` — report where each conf would be written without installing it.
-  Nothing is written outside the staging directory, and PipeWire is not
-  restarted. To keep the confs, use `--output-dir DIR --no-activate` instead.
+  Nothing is written outside the staging directory, except a driver download's
+  tuning files unpacked into `driver-cache/`, and PipeWire is not restarted.
+  To keep the confs, use `--output-dir DIR --no-activate` instead.
 - `--no-validate` — skip the pre-write checks: the `lv2info` schema self-check
   and PipeWire's own LV2 support
 - `--no-color` — disable colored terminal output

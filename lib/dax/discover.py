@@ -268,6 +268,36 @@ def dirs_for_this_machine(dirs: list[Path]) -> list[Path]:
     return [d for d in dirs if _candidate_has_matching_xml(d, expected)]
 
 
+def dirs_with_an_exact_match(dirs: list[Path]) -> list[Path]:
+    """The candidate directories holding a tuning named for this machine's
+    codec exactly: (DEV, SUBSYS) for HDA, (MAN, FUNC, PCI SUBSYS) for
+    SoundWire.
+
+    Stricter than `dirs_for_this_machine`, which goes by subsystem alone: a
+    subsystem can belong to another codec in the same package (issue #33's
+    ALC287 and ALC257), and that codec's tuning is the wrong one. These are
+    `find_tuning_xml`'s first tier, read off the filenames.
+    """
+    hda = {(v.upper()[-4:], s.upper()) for v, s, _n in codecs.get_hda_codec_ids()}
+    sdw = {(m.upper(), p.upper()) for m, p in codecs.get_soundwire_ids()}
+    pci = _pci_subsys_token(codecs.get_pci_audio_subsystem()) if sdw else None
+    out = []
+    for d in dirs:
+        for xml in xmls_directly_under(d):
+            name = xml.name.upper()
+            hit = re.search(r"DEV_([0-9A-F]{4})_SUBSYS_([0-9A-F]{8})", name)
+            if hit and hit.groups() in hda:
+                out.append(d)
+                break
+            hit = re.search(r"MAN_([0-9A-F]{4})_FUNC_([0-9A-F]{4})_SUBSYS_"
+                            r"([0-9A-F]{8})", name)
+            if (hit and pci and hit.group(3) == pci
+                    and (hit.group(1), hit.group(2)) in sdw):
+                out.append(d)
+                break
+    return out
+
+
 def walk_for_dolby_xml_dirs(root: Path, max_depth: int = _CWD_PROBE_MAX_DEPTH) -> list[Path]:
     """Return directories under ``root`` that directly contain a Dolby XML.
 

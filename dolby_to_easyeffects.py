@@ -29,7 +29,7 @@ import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from lib import console, doctor, ee_paths, ee_socket, packages
+from lib import console, doctor, driver_package, ee_paths, ee_socket, packages
 # Aliased: `discover` is the DAX3 one, read far more often in this file.
 from lib.apo import discover as apo_discover
 from lib.apo import layer as apo_layer
@@ -79,7 +79,10 @@ def add_tuning_input_args(container, *, only=None):
         nargs="?",
         type=Path,
         default=None,
-        help="path to the Dolby DAX3 tuning XML, such as DEV_0287_SUBSYS_*.xml",
+        help="path to the Dolby DAX3 tuning XML, such as "
+             "DEV_0287_SUBSYS_*.xml, or to your laptop's audio driver "
+             "download (.exe, .msi or .zip), whose tuning files the run "
+             "unpacks into driver-cache/",
     )
     add(
         "--windows",
@@ -307,8 +310,9 @@ def add_general_args(container, *, only=None):
     add(
         "--dry-run",
         action="store_true",
-        help="run without writing any files to disk: no presets, IRs or "
-             "autoload config. Useful for debugging script execution and "
+        help="run without writing presets, IRs or autoload config. A "
+             "driver download passed in place of the XML is still unpacked "
+             "into driver-cache/. Useful for debugging script execution and "
              "output.",
     )
     add(
@@ -395,7 +399,8 @@ def _attach_completers(parser: argparse.ArgumentParser) -> None:
     from argcomplete.completers import DirectoriesCompleter, FilesCompleter
 
     completers = {
-        "xml_file":      FilesCompleter(("xml", "XML")),
+        "xml_file":      FilesCompleter(("xml", "XML", "exe", "EXE", "msi",
+                                         "MSI", "zip", "ZIP")),
         "windows":       DirectoriesCompleter(),
         "output_dir":    DirectoriesCompleter(),
         "irs_dir":       DirectoriesCompleter(),
@@ -675,6 +680,12 @@ def main(argv: list[str] | None = None,
     elif args.windows:
         xml_path = discover.find_tuning_xml(args.windows, best_guess=args.best_guess)
         console.cprint("ok", f"Auto-detected: {doctor.tilde(xml_path)}")
+    elif args.xml_file and driver_package.kind(args.xml_file):
+        # A vendor's driver download in place of the XML: its tuning files
+        # are unpacked into driver-cache/, and this machine's is picked there.
+        tree = driver_package.unpack(args.xml_file)
+        xml_path = driver_package.pick_xml(tree, Path(args.xml_file),
+                                           best_guess=args.best_guess)
     elif args.xml_file:
         xml_path = args.xml_file
     else:
@@ -701,7 +712,8 @@ def main(argv: list[str] | None = None,
         return
 
     if args.dry_run:
-        console.cprint("head", "Dry run: no files will be written to disk.")
+        console.cprint("head", "Dry run: no presets, IRs or autoload config "
+                       "will be written.")
 
     # A vendor APO config bound to this device (lib/apo/). Looked up once:
     # it belongs to the device, not to a profile. One the device binds but
@@ -735,7 +747,7 @@ def main(argv: list[str] | None = None,
     # of its own. `emit` and `profile` are what pull it in: between them they
     # reach numpy, scipy and lib.preset.{fir,build,plugins}, so importing
     # either eagerly would undo the deferral. Everything this file does import
-    # at the top (console, doctor, ee_paths, ee_socket, packages;
+    # at the top (console, doctor, driver_package, ee_paths, ee_socket, packages;
     # dax.{discover,parse}; hardware.{speakers,sinks}; preset.{autoload,reload};
     # report.{findings,speaker,doctor_run,environment,messages}) reaches no
     # numpy. That is the whole predicate, and it is not "stdlib-only": console
@@ -999,9 +1011,9 @@ def main(argv: list[str] | None = None,
                                         "— the next step builds it into the "
                                         "PipeWire chain.")
             elif args.dry_run:
-                # "recorded" would contradict the dry-run banner's "nothing
-                # was written" (reviewer round, 2026-08-21) — use the same
-                # would-style as the rest of the dry-run copy.
+                # "recorded" would contradict the dry-run banner's "no
+                # presets ... will be written" (reviewer round, 2026-08-21) —
+                # use the same would-style as the rest of the dry-run copy.
                 console._cprint_wrapped("", "--enable virtual-bass: the real "
                                         "run's presets would carry it for "
                                         "dolby_to_pipewire.py, which builds "
@@ -1185,7 +1197,7 @@ def main(argv: list[str] | None = None,
     # presets into a tempdir it deletes on the way out, so "wrote 3 presets
     # to /tmp/…, open EasyEffects and pick one" would name a directory that no
     # longer exists. Under the wrapper's --dry-run it would also contradict
-    # the wrapper's own "nothing was written" two lines later.
+    # the wrapper's own "nothing was installed" two lines later.
     if not args.skip_closing:
         # Single-mode runs only: under --all-profiles every mode was built,
         # so there is nothing to point at. get_profile_types re-reads the
