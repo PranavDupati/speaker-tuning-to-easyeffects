@@ -115,6 +115,8 @@ tuning XML yourself:
 
 ```bash
 python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows --autoload
+python3 dolby_to_easyeffects.py path/to/DEV_0287_SUBSYS_*.xml --autoload
+python3 dolby_to_pipewire.py --windows /mnt/windows/Windows
 python3 dolby_to_pipewire.py path/to/DEV_0287_SUBSYS_*.xml
 ```
 
