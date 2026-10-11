@@ -45,6 +45,7 @@ from lib.dax.parse import (
     parse_xml,
 )
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
+from lib.preset.plugins import LSP_MAKEUP_FLOOR_DB, LSP_THRESHOLD_FLOOR_DB
 from tests.conftest import is_minimum_phase, read_irs_file
 
 
@@ -358,6 +359,23 @@ def test_corpus_xml_every_endpoint_profile_curve(xml_path):
                     )
                     json.dumps(preset)  # catches non-serialisable values
                     assert isinstance(emitted, set), f"{where} {curve_key} {label}"
+                    # EasyEffects clamps a threshold or makeup outside these
+                    # on load and PipeWire's conf validation refuses it, but
+                    # that validation renders one profile per XML; this walk
+                    # sees them all (`r-threshold-below-lsp-floor`).
+                    for name, stage in preset["output"].items():
+                        if not name.startswith("multiband_compressor#"):
+                            continue
+                        for b in range(8):
+                            band = stage[f"band{b}"]
+                            thr = band["attack-threshold"]
+                            mk = band["makeup"]
+                            assert LSP_THRESHOLD_FLOOR_DB <= thr <= 0.0, (
+                                f"{where} {curve_key} {label} {name} "
+                                f"band{b} threshold {thr}")
+                            assert LSP_MAKEUP_FLOOR_DB <= mk <= 60.0, (
+                                f"{where} {curve_key} {label} {name} "
+                                f"band{b} makeup {mk}")
                     combinations += 1
 
     if profiles_seen:

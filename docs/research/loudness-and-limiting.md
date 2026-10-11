@@ -1557,3 +1557,6 @@ a smaller restore or a mitigation is measured.
   [measuring-against-windows.md](measuring-against-windows.md#r-validation-roadmap).
 - #84's other thread, EasyEffects playing hot above 48 kHz:
   [easyeffects-and-pipewire.md](easyeffects-and-pipewire.md#r-convolver-resample-gain).
+- The −60 dB threshold floor the regulator shares with the MBC, and its makeup
+  offset:
+  [adaptive-processing.md](adaptive-processing.md#r-threshold-below-lsp-floor).

@@ -553,6 +553,24 @@ def _print_mbc(tuning, disabled, verbose):
         else:
             print(f"  thresholds {max(thr):+.1f} to {min(thr):+.1f} dB "
                   f"(where bands kick in){tail}")
+        # Printed here rather than warned from the builder, which runs once
+        # per voicing curve and would say it three times.
+        for i, b in enumerate(decoded):
+            fitted, makeup, offset = plugins.fit_threshold(
+                b["threshold"], b["ratio"], b["makeup"])
+            if fitted == b["threshold"]:
+                continue
+            # At the makeup floor the offset falls short, and loud content
+            # plays louder than the tuning, so "keep" would be false.
+            why = (" as far as the compressor allows"
+                   if makeup == plugins.LSP_MAKEUP_FLOOR_DB
+                   else " to keep the tuning's gain on loud content")
+            lower = (f", with makeup {offset:.1f} dB lower{why}"
+                     if offset >= 0.05 else "")
+            console._cprint_wrapped(
+                "dim", f"  band {i}'s {b['threshold']:+.1f} dB is below the "
+                f"{fitted:+.0f} dB the compressor accepts, so it runs at "
+                f"{fitted:+.0f} dB{lower}", indent="    ")
         n_bands_print = len(decoded)
         for i, b in enumerate(decoded if verbose else []):
             xover_idx = b["xover_idx"]

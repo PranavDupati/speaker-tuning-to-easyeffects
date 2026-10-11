@@ -89,6 +89,14 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Fixed
+
+- **[AUDIBLE]** Tunings whose compressor threshold is deeper than the plugin
+  accepts now convert on the PipeWire route instead of being refused. Both
+  routes run such a band at the plugin's limit with less makeup, which keeps
+  loud content at the tuning's level; not listened to. The corpus has them only
+  from ASUS all-in-ones. (why in `docs/research/adaptive-processing.md`)
+
 ## v2026.10 — Driver Downloads as Input and Surface Tuning
 
 The converters take a laptop's driver download in place of the tuning XML.

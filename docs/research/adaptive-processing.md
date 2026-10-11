@@ -17,6 +17,9 @@
   chain; the diagnosed lever is the [regulator](#r-mbc-ratio-time-constants).
 - **`surround-boost`** is unmapped: on one device DAX widened 2-channel
   content by essentially zero ([surround](#r-surround-boost-stereo-base)).
+- **A compressor threshold below −60 dB**, LSP's floor, runs at −60 dB with a
+  derived makeup offset. It reaches 4 corpus XMLs, all from one ASUS
+  all-in-one package ([floor](#r-threshold-below-lsp-floor)).
 
 Open:
 
@@ -31,6 +34,9 @@ Open:
 - The MBC's Q15 format and 256-sample block size are assumed and only
   sanity-checked numerically, never measured
   ([MBC](#r-mbc-ratio-time-constants)).
+- The below-floor makeup offset is untested against DAX. It needs a Windows
+  capture of an affected ASUS all-in-one
+  ([floor](#r-threshold-below-lsp-floor)).
 - The limiter and MBC character knobs need a stimulus that engages them, such
   as clipping-engaging sustained tones or live program material
   ([dormancy](#r-dynamics-dormancy)).
@@ -515,6 +521,52 @@ agent analysis, key numbers re-verified from the converter):
 So the lever is the regulator, not the MBC ratio/threshold, which stays
 XML-derived and unchanged. See the
 [fixed dynamics constants](loudness-and-limiting.md#r-fixed-dynamics-constants).
+
+<a id="r-threshold-below-lsp-floor"></a>
+
+## Compressor thresholds below LSP's −60 dB floor
+
+A compressor band whose tuning threshold is below −60 dB runs at −60 dB, with
+its makeup lowered so loud signals keep the gain the tuning asks for
+(`fit_threshold`).
+
+Conditions: found by the v2026.10 corpus tier, 2026-10-11, no issue. Counted by
+an ad-hoc `make_preset` walk over every endpoint × profile of 1470 distinct
+corpus XMLs (19,562 profiles, default options) and 4 Surface APO layers.
+
+| XML, one ASUS all-in-one package (Dolby driver 8.224.1058.7) | Profiles | Band | Threshold | Ratio | Makeup change |
+|---|---|---|---|---|---|
+| `DEV_0285_SUBSYS_10431EE2` | all 7 | 2 (1031–5813 Hz) | −86.6 dB | 1.05 | −1.33 dB |
+| `DEV_0294_SUBSYS_10431003` | game, movie | 0 (lowest) | −64.3 dB | 1.15 | −0.57 dB |
+| `DEV_0294_SUBSYS_104312B3` | game, movie | 0 (lowest) | −64.3 dB | 1.15 | −0.57 dB |
+| `DEV_0294_SUBSYS_10431BF2` | game, movie, music | 0 (lowest) | −64.9 dB | 1.09 | −0.40 dB |
+
+No regulator zone and no Surface APO band in the corpus is below the floor.
+
+Before the fit, EasyEffects clamped such a threshold to −60 dB on load, saying
+so only in a debug log: its kcfg gives `band*AttackThreshold` a −60 minimum, and
+the setter kconfig_compiler generates enforces it. PipeWire's conf validation
+refused it, as below LSP's `al_N` port minimum of 0.001. Fitting in the
+generator gives both routes the same band. The makeup offset
+`(−60 − T)·(1 − 1/ratio)` is the gap between the two hard-knee static curves
+above −60 dB. Below the tuning's threshold the band plays quieter than asked by
+the full offset, and between that threshold and −60 dB by less. Makeup has its
+own −60 dB floor, so a deep threshold on a steep band gets only the offset that
+floor allows. The offset is derived from the tuning's own threshold, ratio and
+makeup, but no capture tests it. It ships by default rather than as the opt-in
+that `xml-derivability.md` asks of an unvalidated mapping, by the maintainer's
+call. On EasyEffects it does change a band that already ran, clamped to −60 dB
+with the tuning's makeup, by up to 1.33 dB on the rows above. PipeWire never
+ran these bands at all. The corpus tier's PipeWire walk renders one profile per
+XML and saw only the first row, so the every-profile walk now checks every
+band's threshold and makeup against the plugin's range.
+
+Open:
+
+- A Windows capture of an affected all-in-one would test the offset. No
+  reporter has one.
+- LSP's −6 dB soft knee and RMS detection blur the match near −60 dB. The
+  static-curve equality holds only well above it.
 
 <a id="r-leveler-autogain-window"></a>
 

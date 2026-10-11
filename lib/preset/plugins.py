@@ -181,6 +181,40 @@ def _disabled_band() -> dict:
     }
 
 
+# The deepest threshold an LSP compressor band takes: its `al_N` port bottoms
+# out at 0.001 (-60 dB), and EasyEffects' kcfg clamps `band*AttackThreshold`
+# to -60 on load, so a deeper value never runs on either route. PipeWire's
+# conf validation refuses one outright. Makeup has the same floor: `mk_N`
+# bottoms out at 0.001 and kcfg clamps `band*Makeup` to -60.
+LSP_THRESHOLD_FLOOR_DB = -60.0
+LSP_MAKEUP_FLOOR_DB = -60.0
+
+
+def fit_threshold(threshold_db: float, ratio: float,
+                  makeup_db: float) -> tuple[float, float, float]:
+    """A band's threshold and makeup moved into LSP's range, plus the offset.
+
+    Returns ``(threshold, makeup, offset_db)``. Above the floor, everything
+    is returned unchanged and the offset is 0. Below it, the threshold rises
+    to the floor and makeup drops by ``(floor - threshold) * (1 - 1/ratio)``.
+    That is the constant gap between the two hard-knee static curves for any
+    input above the floor, so loud signals keep the gain the tuning asks
+    for. Below the floor the band plays quieter than the tuning asks: by the
+    full offset under the tuning's threshold, and by less as the input rises
+    from there to the floor.
+
+    Makeup stops at its own -60 dB floor, so a very deep threshold on a steep
+    band gets less than the full offset and plays louder than the tuning on
+    loud content. The returned offset is the one applied. Research
+    `r-threshold-below-lsp-floor`; the mapping is unvalidated.
+    """
+    if threshold_db >= LSP_THRESHOLD_FLOOR_DB or ratio <= 1.0:
+        return (max(threshold_db, LSP_THRESHOLD_FLOOR_DB), makeup_db, 0.0)
+    wanted = (LSP_THRESHOLD_FLOOR_DB - threshold_db) * (1.0 - 1.0 / ratio)
+    makeup = max(makeup_db - wanted, LSP_MAKEUP_FLOOR_DB)
+    return (LSP_THRESHOLD_FLOOR_DB, makeup, makeup_db - makeup)
+
+
 def decode_mbc_bands(mb_comp: dict | None) -> list[dict]:
     """Decode Dolby mb-compressor band_groups into per-band dynamics dicts.
 
@@ -197,7 +231,10 @@ def decode_mbc_bands(mb_comp: dict | None) -> list[dict]:
     is also called by the silent diagnostics path). Out-of-range values
     are still *handled* here (ratio clamps to 100.0, time constants fall
     back via ``decode_mbc_time_constant``) so the returned values match
-    what the builder emits. The builder just additionally warns.
+    what the builder emits. The builder just additionally warns. The one
+    exception is a band whose threshold is below LSP's floor: the decode
+    keeps the tuning's threshold and makeup, and the builder emits both as
+    ``fit_threshold`` moves them.
 
     Band selection mirrors the builder: at most ``group_count`` bands,
     capped by the number of band_groups parsed and LSP's 8-band limit.
@@ -319,6 +356,8 @@ def make_multiband_compressor(mb_comp: dict | None,
             # else 20 kHz).
             lower = crossovers[i - 1] if i > 0 else 10.0
             upper = crossovers[i] if i < n_bands - 1 else 20000.0
+            threshold, makeup, _ = fit_threshold(b["threshold"], b["ratio"],
+                                                 b["makeup"])
             band = {}
             if i > 0:
                 # Band 0 is always enabled with no split-frequency; bands 1+
@@ -329,13 +368,13 @@ def make_multiband_compressor(mb_comp: dict | None,
                 "compressor-enable": True,
                 "mute": False,
                 "solo": False,
-                "attack-threshold": round(b["threshold"], 4),
+                "attack-threshold": round(threshold, 4),
                 "attack-time": round(b["attack_ms"], 4),
                 "release-threshold": MBC_RELEASE_THRESHOLD_FLOOR,
                 "release-time": round(b["release_ms"], 4),
                 "ratio": round(b["ratio"], 4),
                 "knee": -6.0,
-                "makeup": round(b["makeup"], 4),
+                "makeup": round(makeup, 4),
                 "compression-mode": "Downward",
                 "sidechain-type": "Internal",
                 "sidechain-mode": "RMS",
@@ -511,17 +550,19 @@ def make_regulator(regulator: dict | None, freqs: list[int],
                 is_active = (iso is not None and
                              all(iso[k] == 0
                                  for k in range(zone_start, zone_end + 1)))
+            # After the activity test, which reads the tuning's own value.
+            fitted, makeup, _ = fit_threshold(threshold, ratio, 0.0)
             band = {
                 "compressor-enable": is_active,
                 "mute": False,
                 "solo": False,
-                "attack-threshold": round(threshold, 4),
+                "attack-threshold": round(fitted, 4),
                 "attack-time": 1.0,  # very fast for limiting
                 "release-threshold": MBC_RELEASE_THRESHOLD_FLOOR,
                 "release-time": 50.0,
                 "ratio": round(ratio, 4),
                 "knee": round(knee, 4),
-                "makeup": 0.0,
+                "makeup": round(makeup, 4),
                 "compression-mode": "Downward",
                 "sidechain-type": "Internal",
                 "sidechain-mode": "Peak",  # peak detection for limiting
@@ -632,7 +673,8 @@ def make_band_dynamics(stage, input_gain: float = 0.0) -> dict:
 
     - The look-ahead is 0: the zero-added-latency rule (`dsp-fir.md`).
     - A band's pregain lands on its detector and its makeup alike, which
-      is compressing the band after boosting it.
+      is compressing the band after boosting it. Makeup also carries any
+      `fit_threshold` offset.
     - A narrowed sidechain is the custom low/high-cut pair. That is how a
       resonance limiter's overlapping detection bands ride contiguous
       splits.
@@ -661,8 +703,10 @@ def make_band_dynamics(stage, input_gain: float = 0.0) -> dict:
         lo, hi = b.sidechain_hz or (edges[i], edges[i + 1])
         # LSP's threshold port tops out at 0 dBFS. An inert band's value is
         # never read (Surface parks an unused DRC band at +48 dB), and an
-        # active one above full scale could not trigger anyway.
+        # active one above full scale could not trigger anyway. Its floor is
+        # `fit_threshold`'s.
         threshold = min(b.threshold_db, 0.0) if b.enabled else 0.0
+        threshold, makeup, _ = fit_threshold(threshold, b.ratio, b.pregain_db)
         band = {}
         if i > 0:
             band["enable-band"] = True
@@ -677,7 +721,7 @@ def make_band_dynamics(stage, input_gain: float = 0.0) -> dict:
             "release-time": round(b.release_ms, 4),
             "ratio": round(b.ratio, 4),
             "knee": round(stage.knee_db, 4),
-            "makeup": round(b.pregain_db, 4),
+            "makeup": round(makeup, 4),
             "compression-mode": "Downward",
             "sidechain-type": "Internal",
             "sidechain-mode": stage.detection,

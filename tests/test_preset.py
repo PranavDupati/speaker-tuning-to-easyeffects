@@ -72,6 +72,7 @@ from lib.preset.build import make_preset
 from lib.preset.plugins import (
     _disabled_band,
     decode_mbc_bands,
+    fit_threshold,
     make_autogain,
     make_bass_enhancer,
     make_dialog_enhancer,
@@ -1475,6 +1476,101 @@ def test_mbc_out_of_range_xover_falls_back_to_500():
         ]),
         SYNTHETIC_FREQS_20)
     assert mbc["band1"]["split-frequency"] == 500.0
+
+
+# --- LOCK-IN: thresholds below LSP's -60 dB floor (r-threshold-below-lsp-floor) ---
+
+# An ASUS all-in-one tuning's band: -1386/16 = -86.625 dB at 32768/31127 ≈
+# 1.0527:1, makeup 24/16 = 1.5 dB. EasyEffects clamped it to -60 on load and
+# PipeWire's conf validation refused it.
+_DEEP_BAND = (20, -1386, 31127, 22641, 32647, 24)
+_IN_RANGE_BAND = (7, -465, 27844, 32443, 32617, 40)
+
+
+def test_mbc_threshold_below_the_lsp_floor_runs_at_the_floor():
+    mbc = make_multiband_compressor(
+        synthetic_mb_comp(group_count=2, bands=[_IN_RANGE_BAND, _DEEP_BAND]),
+        SYNTHETIC_FREQS_20)
+    deep, ok = mbc["band1"], mbc["band0"]
+    assert deep["attack-threshold"] == -60.0
+    # 26.625 dB of threshold lift at a 1 - 31127/32768 slope.
+    assert deep["makeup"] == pytest.approx(1.5 - 26.625 * (1 - 31127 / 32768),
+                                           abs=1e-4)
+    assert ok["attack-threshold"] == -465 / 16 and ok["makeup"] == 40 / 16
+
+
+def test_fitted_threshold_keeps_the_tunings_gain_above_the_floor():
+    """The makeup offset is what makes a capped band match the tuning's
+    hard-knee static curve wherever the input sits above the floor. Below
+    the tuning's threshold the band plays quieter by the full offset, and
+    between that threshold and the floor by less."""
+    t, r, m = -86.625, 1.0527, 1.5
+    ft, fm, offset = fit_threshold(t, r, m)
+
+    def gain(x, thr, makeup):
+        return makeup - max(x - thr, 0.0) * (1 - 1 / r)
+
+    for x in (-55.0, -30.0, -10.0, 0.0):
+        assert gain(x, ft, fm) == pytest.approx(gain(x, t, m), abs=1e-9)
+    for x in (-120.0, -100.0, -87.0):
+        assert gain(x, ft, fm) - gain(x, t, m) == pytest.approx(-offset,
+                                                               abs=1e-9)
+    for x in (-86.0, -75.0, -61.0):
+        assert -offset < gain(x, ft, fm) - gain(x, t, m) <= 0
+
+
+def test_fit_threshold_stops_makeup_at_its_own_floor():
+    """A deep threshold on a steep band would want more offset than makeup
+    can give: -130 dB at 100:1 asks for 69.3 dB. Below -60 dB makeup is
+    refused by PipeWire and clamped by EasyEffects, the same failure the
+    threshold fit exists to prevent."""
+    ft, fm, offset = fit_threshold(-130.0, 100.0, 0.0)
+    assert (ft, fm) == (-60.0, -60.0)
+    assert offset == 60.0
+
+
+@pytest.mark.parametrize("args,expected", [
+    ((-12.0, 4.0, 1.0), (-12.0, 1.0, 0.0)),    # in range: untouched
+    ((-60.0, 4.0, 1.0), (-60.0, 1.0, 0.0)),    # at the floor: untouched
+    ((-80.0, 1.0, 2.0), (-60.0, 2.0, 0.0)),    # 1:1 never compresses
+])
+def test_fit_threshold_leaves_what_needs_no_offset(args, expected):
+    assert fit_threshold(*args) == expected
+
+
+def test_regulator_zone_below_the_floor_is_fitted_and_stays_active():
+    reg = make_regulator(synthetic_regulator([-70.0] * 20), SYNTHETIC_FREQS_20)
+    band = reg["band0"]
+    assert band["compressor-enable"] is True
+    assert band["attack-threshold"] == -60.0
+    assert band["makeup"] == pytest.approx(-10.0 * (1 - 1 / 100.0), abs=1e-4)
+
+
+def test_report_names_a_band_run_at_the_floor_once(silence_console, capsys):
+    silence_console(console)
+    tuning = _report_tuning(synthetic_regulator([-6.0] * 20), 0.0)
+    tuning.mb_comp = synthetic_mb_comp(group_count=2,
+                                       bands=[_IN_RANGE_BAND, _DEEP_BAND])
+    _report_parsed_profile(tuning, set())
+    out = " ".join(capsys.readouterr().out.split())
+    assert out.count("the compressor accepts") == 1, out
+    assert "band 1's -86.6 dB is below the -60 dB" in out
+    assert "makeup 1.3 dB lower" in out
+    assert "band 0's" not in out
+
+
+def test_report_does_not_claim_the_gain_is_kept_at_the_makeup_floor(
+        silence_console, capsys):
+    silence_console(console)
+    tuning = _report_tuning(synthetic_regulator([-6.0] * 20), 0.0)
+    # -2048/16 = -128 dB at 32768/320 ≈ 102:1, clamped to 100:1: the fit
+    # wants ~67 dB of offset and makeup stops at -60.
+    tuning.mb_comp = synthetic_mb_comp(group_count=1, bands=[
+        (20, -2048, 320, 30000, 32500, 0)])
+    _report_parsed_profile(tuning, set())
+    out = " ".join(capsys.readouterr().out.split())
+    assert "as far as the compressor allows" in out, out
+    assert "keep the tuning's gain" not in out
 
 
 # --- LOCK-IN: make_bass_enhancer scope derivation ---

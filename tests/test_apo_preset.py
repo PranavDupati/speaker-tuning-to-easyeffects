@@ -108,6 +108,19 @@ def test_band_dynamics_maps_pregain_sidechain_and_no_lookahead():
                    for i in range(8))
 
 
+def test_band_dynamics_threshold_below_the_floor_moves_makeup_only():
+    """The floor offset lands on makeup; the detector keeps its pregain."""
+    deep = apo_layer.BandDynamics(
+        name="drc", crossovers_hz=(), detection="RMS", knee_db=0.0,
+        bands=(apo_layer.DynBand(enabled=True, threshold_db=-70.0, ratio=2.0,
+                                 attack_ms=5.0, release_ms=50.0,
+                                 pregain_db=2.0),))
+    band = make_band_dynamics(deep)["band0"]
+    assert band["attack-threshold"] == -60.0
+    assert band["makeup"] == 2.0 - 10.0 * 0.5
+    assert band["sidechain-preamp"] == 2.0
+
+
 def test_layer_stages_must_follow_the_regulator():
     with pytest.raises(ValueError, match="vendor APO"):
         _assert_positional(["multiband_compressor#2",

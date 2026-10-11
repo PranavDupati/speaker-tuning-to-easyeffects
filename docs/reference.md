@@ -199,6 +199,14 @@ preserved so users can toggle it in the GUI.
 Only the first `group_count` of the four `band_group_N` slots are decoded,
 capped at LSP's 8-band ceiling. Block rate assumes 256 samples @ 48 kHz.
 
+A threshold below −60 dB, the deepest LSP and EasyEffects accept, runs at
+−60 dB. That band's makeup drops by `(−60 − threshold)·(1 − 1/ratio)`, which
+keeps the tuning's gain on signals above −60 dB. Below the tuning's threshold
+the band plays quieter than the tuning by that amount, and makeup itself stops
+at −60 dB. The regulator and the Surface
+APO dynamics apply the same floor
+([threshold floor](research/adaptive-processing.md#r-threshold-below-lsp-floor)).
+
 **`volmax-boost` → loudness makeup.** `volmax-boost`, e.g. 96 = +6 dB, is the
 ceiling of Dolby's MI-steered VolMax. With no MI leveler to apply it
 dynamically, the script applies it statically as the regulator's `input-gain`.
@@ -377,6 +385,8 @@ yet confirmed against a DAX capture**. Among them:
 - The dialog-enhancer dB ceiling.
 - The regulator slope/knee mappings.
 - The MBC Q15 decode.
+- The makeup offset for a threshold below −60 dB
+  ([threshold floor](research/adaptive-processing.md#r-threshold-below-lsp-floor)).
 - The autogain window formulas and offsets
   ([leveler→autogain window](research/adaptive-processing.md#r-leveler-autogain-window),
   [conservative-autogain offsets](research/adaptive-processing.md#r-conservative-autogain-offsets)).
