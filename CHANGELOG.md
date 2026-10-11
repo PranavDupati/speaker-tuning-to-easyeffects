@@ -91,13 +91,14 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
-- **[AUDIBLE]** Surface speakers now get the tuning Microsoft ships outside
-  Dolby's file, its Surface APO, by default. Heard as much better on one
-  device; not compared with Windows. `--disable vendor-apo` leaves it out
+- `dolby_to_easyeffects.py` and `dolby_to_pipewire.py` take your laptop's
+  audio driver download (`.exe`, `.msi` or `.zip`) in place of the tuning
+  XML, and unpack its tuning files into the checkout's `driver-cache/`.
+- **[AUDIBLE]** Surface speakers now also get the tuning Microsoft ships
+  beside Dolby's file in its driver, the Surface APO, by default. Heard as
+  much better on one device; not compared with Windows.
+  `--disable vendor-apo` leaves it out
   ([#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113)).
-- The converters take your laptop's audio driver download (`.exe`, `.msi` or
-  `.zip`) in place of the tuning XML, and unpack its tuning files themselves.
-  An `.exe` or `.msi` needs innoextract, 7-Zip or msitools installed.
 - Mark additional tested devices: ThinkPad X13 Gen 2 Intel (20WK)
   ([#105](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/105)),
   ThinkPad X13 Yoga Gen 1 (20SX)
@@ -121,39 +122,30 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   Microsoft Surface Laptop 5
   ([#128](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/128)).
 
-### Changed
-
-- On Hyprland, sway and similar compositors, `--doctor` reports the 'Autostart
-  on login' toggle as unknown rather than passing, and gives the line to add to
-  the compositor's own startup: the toggle writes an autostart entry, which
-  these run only through a helper such as uwsm
-  ([#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117)).
-
 ### Fixed
-
-- `--doctor` warns when EasyEffects plays the Dolby speaker tuning on another
-  output, such as Bluetooth headphones, and says where EasyEffects' Fallback
-  Preset setting is. It used to report that preset as fine.
 
 - The PipeWire route now catches a PipeWire that can't load LV2 plugins, such
   as Fedora without `pipewire-module-filter-chain-lv2`. The converter refuses
   to write the conf, and `--doctor` and the post-restart check say so, naming
   the package where one exists. `--no-validate` skips it
   ([#123](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/123)).
-- `--doctor` no longer warns "Background service" when a startup file it
-  reads launches EasyEffects instead of its autostart toggle: the running
-  compositor's config or an autostart entry. With EasyEffects running in
-  service mode and no such file, it reports unknown
-  ([#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117)).
-- When numpy is missing but `/usr/bin/python3` has it, the error says to run
-  with `/usr/bin/python3` instead of repeating an install command. This
-  happens when another `python3`, such as Homebrew's, comes first on `PATH`
-  ([#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111)).
 - The scripts run on Python 3.9, the `python3` of RHEL, Rocky and Alma 9.
   Three modules failed to import there.
-- When your distribution has no numpy or SciPy package, as openSUSE Leap 16.0
-  has no SciPy, the error points to a virtualenv instead of an install
-  command that can't work.
+- `--doctor` warns when EasyEffects plays the Dolby speaker tuning on another
+  output, such as Bluetooth headphones, and says where EasyEffects' Fallback
+  Preset setting is. It used to report that preset as fine.
+- `--doctor`'s "Background service" check no longer warns when the
+  compositor's config or an autostart entry launches EasyEffects instead of
+  its own toggle, and reports unknown when it can't tell. Hyprland, sway and
+  similar compositors run the toggle only through a helper such as uwsm, so
+  there it gives the line to add to the compositor's startup
+  ([#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117)).
+- A missing numpy or SciPy gets advice that can work: run with
+  `/usr/bin/python3` when it has them but another `python3`, such as
+  Homebrew's, comes first on `PATH`, or use a virtualenv where your
+  distribution doesn't package them, as openSUSE Leap 16.0 doesn't package
+  SciPy
+  ([#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111)).
 - The `--help` colour tip leaves out a package your distribution doesn't
   carry, such as `python3-rich-argparse` on Ubuntu 24.04, so its command no
   longer fails. The README's install list says which packages to leave out
