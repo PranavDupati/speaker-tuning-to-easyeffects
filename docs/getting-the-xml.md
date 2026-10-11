@@ -38,8 +38,9 @@ downloaded from the vendor's support site. On a Lenovo, the fetcher above finds
 and downloads it for you.
 
 1. Download your model's audio driver. Not every audio download carries the
-   tuning: ASUS's codec, APO and smart-amp downloads carry none, and its Dolby
-   extension download does.
+   tuning. On ASUS's support site, take the one titled *Dolby Atmos driver*,
+   listed under Software and Utility or under Audio. Its *Realtek Audio
+   Driver* and SmartAMP downloads carry none.
 2. Install the tool its format needs. If one is missing, the run names it, and
    says how to install it where your distribution packages it.
 

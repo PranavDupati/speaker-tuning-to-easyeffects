@@ -134,10 +134,15 @@ that download covers. That layout is why it is the only package here that ships
 two bus-prefixed spellings of the *same* device. See
 [cross-device-findings.md](cross-device-findings.md#17-bus-prefixed-filenames).
 
-Not every audio driver package carries a tuning. ASUS's codec, APO and
-smart-amp downloads carry none, which is why its two entries below arrived
-through issues. Its Dolby extension download does carry them: the
-`ext_realtek_asus_consumer` row above.
+Not every audio driver package carries a tuning. ASUS's codec and smart-amp
+downloads carry none, which is why its two entries below arrived through
+issues. The download ASUS titles *Dolby Atmos driver* does carry them: the
+`ext_realtek_asus_consumer` row above. Checked on 2026-10-11 for the TUF
+Gaming A15 FA507NV, Zenbook 14 UX3405CA and UX3405MA, and Zenbook Pro 16X
+UX7602BZ. Each one's Dolby Atmos driver held its tuning: under Software and
+Utility on the first three, and under Audio as `DolbyAPOdriver_…` on the
+fourth. Each one's *Realtek Audio Driver*, `Audio_DriverOnly_Dolby_…`,
+held none despite its name.
 
 Twelve of the Surface `.msi`s also ship Microsoft's Surface APO configs,
 `SurfaceAPO_*.json`, eleven of them with a speaker chain. They are not counted
