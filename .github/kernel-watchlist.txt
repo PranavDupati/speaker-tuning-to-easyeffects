@@ -34,6 +34,16 @@ ideapad
 galaxy book
 samsung
 
+# watch: standing — Realtek smart amps the kernel leaves unprogrammed. Windows
+# appears to load their DSP program from Realtek's codec database (research
+# r-realtek-codec-database); the kernel programs one machine's, the Razer Blade
+# 16 (2025) (961d9f98da0d). The Framework Laptop 13 Pro (#73, F111:000F)
+# carries what reads as an amp program, its header naming part 0x1320 (read as
+# ALC1320), that the kernel never loads, so a Framework amp quirk upstream
+# changes what its preset sits on.
+alc1320
+framework laptop
+
 # watch: standing — Awinic AW88399 woofer amps on Lenovo Legion. Its HDA side
 # codec landed in 7.3 (de7027c9149f + 494978ae8243) on eight codec SSIDs across
 # the Legion Pro 7i 16IAX10H / Y9000P IAX10, R9000P ADR10(H) and Pro 7 16AFR10H;

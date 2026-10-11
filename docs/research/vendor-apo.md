@@ -154,8 +154,13 @@ Open:
 - Crystal's semantics, the DRC's level reference, crossover type,
   `OutputLimit` and the 50–100 ms hold times are unknown.
 - `surfacedspextension/saflibadl.bin` (the Intel DSP side of the EFX, whose
-  proxy the APO names), `RenderHeadroom=3` in that package's `.inf`, and
-  Realtek's `RTAIODAT.DAT` are opaque. Whether they add processing is unknown.
+  proxy the APO names) and `RenderHeadroom=3` in that package's `.inf` are
+  opaque. Whether they add processing is unknown.
+- A hypothesised reading of Realtek's `RTAIODAT.DAT` is at
+  [hardware-and-drivers.md#r-realtek-codec-database](hardware-and-drivers.md#r-realtek-codec-database).
+  The Surface Laptop 5 package ships a 53-entry copy, in which `10EC1284`
+  matches capture blocks and an `RTVERBTABLE`. The Surface Pro 9 package's
+  own copy is unread.
 - The fold puts MainEQ before Dolby's dynamics; Windows runs it after them.
   That is exact while the preset carries no Dolby dynamics: the default HDA
   run in the 6 profiles without a regulator. It is not exact with

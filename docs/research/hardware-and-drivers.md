@@ -17,6 +17,10 @@ project reports these faults and doesn't touch the kernel.
   table-free *ask* read from the codec dump ([#95](#r-fixed-level-speaker-pin)).
 - **Smart amps**: `_AMP_FAMILIES` counts a part with an on-chip DSP doing
   voicing or protection ([criterion](#r-smart-amp-families)).
+- **What reads as codec EQs and amp programs in Realtek's Windows driver**:
+  per-device blocks no Linux package or kernel quirk carries. The field readings
+  are unconfirmed hypotheses, and nothing translates them
+  ([database](#r-realtek-codec-database)).
 
 Open:
 
@@ -37,6 +41,8 @@ Open:
   for a report of the mono symptom ([routing](#r-speaker-dac-misrouted)).
 - TAC5XX2's firmware-name guess is unseen, and its watchlist entry waits on a
   machine ([smart amps](#r-smart-amp-families)).
+- Realtek's codec EQ and DRC blocks have hypothesised field readings and no
+  validation ([database](#r-realtek-codec-database)).
 - `lib/hardware/speakers.py` states that SOF zeroes the PCI subsystem id, and
   `_quirk_for_codec` skips PCI-SSID matches on SOF because of it. That is
   unverified. A SOF-card report with a "picked fixup … PCI SSID" kernel log
@@ -822,6 +828,312 @@ The sweep also found and fixed one artefact. `max98512` had been in the token
 list since the Maxim row was written. It appears nowhere in the kernel tree, so
 it had never matched anything. It was dropped rather than corrected to
 `max98520`, because no laptop board binds that part either.
+
+<a id="r-realtek-codec-database"></a>
+
+## Realtek's codec database: what reads as per-device codec EQs and amp programs
+
+Realtek's Windows codec driver appears to load per-device codec EQs and
+smart-amp DSP programs from `RTAIODAT.DAT`, a database outside the DAX3 XML. No
+Linux package or kernel quirk carries this data. Two tested devices on a Realtek
+codec have speaker blocks in it: the Framework Laptop 13 Pro (read as an amp
+program) and the ASUS Zenbook 14 UX3405 (read as a codec EQ). The container
+layout below is verified. Every block's meaning is an unconfirmed hypothesis. No
+Realtek documentation describes the file, and no capture has tested a decoded
+block. The readings rest on driver string names, value statistics and one byte
+match against a kernel table. Conditions: the `RTAIODAT.DAT` of three Realtek
+codec packages, read 2026-10-11; issues #73, #19 and #24.
+
+| Driver | Download | SHA-256 | Records | Entries |
+|---|---|---|---|---|
+| 6.0.9780.1 | ASUS `Audio_DriverOnly_Dolby_DCH_Realtek_Z_V6.0.9780.1_41921_1.exe` | `87025396…` | 2833 | 2853 |
+| 6.0.9989.1 | `Framework_Laptop_13_Intel_Core_Ultra_Series3_driver_bundle_W11_v101_2026_06_05.exe` | `32574368…` | 2974 | 3004 |
+| 6.0.10007.1 | Lenovo `n3bao30w.exe` | `27c1eca2…` | 2981 | 3008 |
+
+**The container.** It fits all three files exactly. The header is `MDTR`, then
+u32 file size, record count and entry count. Records follow at offset 0x10, 28
+bytes each. A record holds two subsystem-ID ranges (low, high), a zero word, an
+entry index and one unread word. The entry table follows the records, 28 bytes
+per entry: u32 offset, u32 block count, u32 length, then a 16-byte name. In all
+three files the first entry is an empty `UnUsedXXX` whose offset is the end of
+the table. An entry holds blocks, each headed by a UTF-16 tag. Names are labels:
+several records can share one entry. A record carries subsystem IDs and no codec
+ID. The tested `17AA:3811` (IdeaPad Slim 5 14ARP10, a Conexant SN6140) matches
+an entry with `RTEQEX` blocks, which the Realtek driver can't load on that
+machine.
+
+**Only the kernel driver names it.** Five binaries in the Framework package were
+searched for `RTAIODAT` and eight block tags, in ASCII and UTF-16 strings. Only
+`RTKVHD64.sys` names any of them. That makes codec-side data plausible. The two
+Realtek APO DLLs (`RltkAPOU642.dll`, `RtkUApo2Api.dll`) and the service's
+`RtkCfg64.dll` and `RtDataProc64.dll` name none. The Framework and ASUS
+extension `.inf`s chain a Realtek APO after Dolby's endpoint effect, but that
+APO's binaries name nothing from this file.
+
+**The tested devices' entries** are byte-identical in every build that has
+them. The 6.0.9780.1 build has no `F111` record.
+
+| Subsystem ID | Device | Entry | Bytes | Blocks |
+|---|---|---|---|---|
+| `F111:000F` | Framework Laptop 13 Pro | `F111_000F` | 102,314 | `RTMICAR`, `AFX0`, `AFX1`, `RTKAMPI` |
+| `F111:010F` | "Framework Laptop 13 PTL", its kernel quirk name | `F111_010F` | 102,314 | the same tags, different bytes |
+| `1043:1A63` | Zenbook 14 UX3405CA, UX3405MA | `ASUS1A63` | 208 | `RTHDAEQ0` |
+
+**`RTKAMPI` reads as a smart-amp DSP program.** The driver's strings name it
+`RTKAMPInfo`, beside `InitR0_AMPDSP`, `SmartAmpInitTime` and
+`NotPresentAmpIC%d`. The kernel's Razer Blade 16 (2025) support,
+`sound/hda/codecs/helpers/razer_blade16_2025.c` (961d9f98da0d), programs that
+machine's external amp DSP from a 678-entry init table captured from the
+Windows driver.
+Its header comment says the DSP holds the speakers' "crossover, voicing and
+protection". The Blade 16's own `RTKAMPI` entries hold those writes:
+
+| Subsystem ID | `RTKAMPI` bytes | Header words | Kernel writes found verbatim |
+|---|---|---|---|
+| `1A58:300E` | 11,892 | `0x10EC`, `0x41318` | 672 / 678 |
+| `1A58:2023` | 12,484 | `0x10EC`, `0x31318` | 476 / 678 |
+| `F111:000F` | 101,316 | `0x10EC`, `0x41320` | (no kernel table) |
+
+Reading `0x1318` and `0x1320` as Realtek's ALC1318 and ALC1320 amp parts is an
+inference from the Razer pair. The kernel quirk for `F111:000F` sets up the
+microphones and headset jack only
+(`ALC295_FIXUP_FRAMEWORK_LAPTOP_LIMIT_INT_MIC_BOOST`). No kernel quirk or driver
+programs its amp.
+
+**The EQ blocks fit one set layout, as a hypothesis.** `RTHDAEQ` holds one
+32-word set after a 5-word header, and `RTEQEX` with magic `EQEX` holds four.
+Read this way, a set is an enable mask, a lead filter's gain and frequency, nine
+bands, then a high-pass slope and corner. A band is gain in hundredths of a dB,
+centre in Hz, then bandwidth in Hz. Mask bit k+1 reads as enabling band k, and
+bit 0 the lead filter. Both readings score best against the alternatives tested,
+in the 6.0.9989.1 build. That supports them without confirming them. The band
+order was tested on the 65 `RTHDAEQ` sets, whose unused bands share template
+slots from 200 Hz/100 Hz wide to 16 kHz/3 kHz wide. The mask was tested on those
+plus 944 `EQEX` sets:
+
+| Reading | Test | Score | Alternative | Its score |
+|---|---|---|---|---|
+| gain, Hz, width | moved bands that carry gain | 314 / 327 | Hz, width, gain | 268 / 327 |
+| gain, Hz, width | template bands with zero gain | 249 / 258 | Hz, width, gain | 203 / 258 |
+| bit k+1 → band k | set bits whose band has gain | 3,446 / 3,511 | bit k → band k | 2,692 / 3,460 |
+| bit k+1 → band k | clear bits whose band has zero gain | 4,815 / 5,570 | bit k → band k | 4,112 / 5,621 |
+
+Under this reading, a clear bit over a band that carries gain is a band
+configured and switched off. Of the 69 sets with bit 0 set, 55 give the lead
+filter gain. Of the 940 with it clear, 904 give it none. The lead filter's type
+is unread; its frequency is 100 Hz in 54 of the 65 `RTHDAEQ` sets. The slope
+word takes only 0 (19 sets), −20 (22) and −40 (24), read as dB per decade. The
+corner is then 50–800 Hz across the 46 sets with a slope. The words after the
+set are unread.
+
+**`EQX3` and `EQX4` fit a 44-word version of the set** (697 blocks, 2,788 sets).
+The lead filter reads as a tenth band with a width, whose template slots are the
+octaves from 31 Hz to 16 kHz. Ten more words read as per-band type codes: 0 in
+25,464 of 27,880, and 1–4 in all but 4 of the rest. The same mask reading fits.
+Set bits have a band with gain in 6,797 of 7,376, and clear bits a band with
+zero gain in 16,996 of 17,716. 10,868 of 10,872 `EQX3` bands and 14,204 of
+14,220 `EQX4` bands parse with a frequency of 20–24,000 Hz, a width of 1–24,000
+Hz and at most ±30 dB. The enabled lead slot carries gain in only 185 of 1,089
+sets, which fits a filter without gain, such as a high-pass. The type codes are
+unread. `EQX5` (270 blocks, 64-word sets) doesn't parse this way and is unread.
+
+**`RTKHDRC` reads as a dynamics processor.** Its magic is `DrcT`. Each of its
+930 blocks holds 10 records of 21 words, mixing integers and float32. The
+readings below are guesses from the value distributions over the 9,300 records
+alone:
+
+| Field | Values | Reading |
+|---|---|---|
+| 0 | 1 in 3,327, else 0 | enable |
+| 2 | 1.0 in 7,650; 0.5, 0.333, 0.25, 0.125, 0.077, 0.01 | 1 / compression ratio |
+| 4 | 1.0 in 8,542; else mostly 1.2–6.0 | an expander ratio |
+| 5, 6 | integers, mostly 0 to −20 | thresholds, dB |
+| 7, 8 | −100 in most; else mostly −50 to −90 | gate thresholds, dB |
+| 9 | integers, mostly 0 to 10 | makeup gain, dB |
+| 10–17 | float pairs, such as 0.3 and 300.0 | time constants |
+| 19, 20 | 0 and 24,000 in most | band edges, Hz |
+
+**Under this reading, `ASUS1A63`'s mask, 522, enables three of its nine
+bands**, and its lead filter is off:
+
+| Band | 100 Hz, 200 wide | 700 Hz, 150 wide | 16 kHz, 10 kHz wide |
+|---|---|---|---|
+| dB | +6 | −12 | +4 |
+
+The other six bands carry −9 to +6 dB and read as switched off. With its
+1st-order high-pass at 77 Hz, as RBJ peaking biquads with Q = Hz/width, the
+response would be +4.0 dB at 100 Hz, −11.6 dB at 700 Hz and +4.0 dB at 16 kHz.
+It would stay within ±1 dB from 1 to 12 kHz.
+
+**Reach.** `tools/corpus_audit.py`'s discovery from the repo root found 1,163
+distinct subsystem IDs on 2026-10-11. The 1,098 on a Realtek HDA codec
+(`DEV_02xx`, `DEV_08xx`) were looked up in the 6.0.9989.1 build. An ID can
+count in more than one row:
+
+| Entry content | Subsystem IDs |
+|---|---|
+| no record | 928 |
+| capture blocks only (`RTMICAR`, `RTMICEQ`) | 131 |
+| `RTEQEX` | 22 (17AA 18, 1043 4) |
+| `RTKHDRC` | 21 (17AA 16, 1043 5) |
+| `RTKAMPI` | 8 |
+| `RTSPKPT` | 6 |
+| `RTHDAEQ` | 2 (`10431A63`, `10431C43`) |
+
+Across the whole database, with each record's ranges expanded where they span
+under 4,096 IDs, 4,241 subsystem IDs have a record. 2,172 of them carry an
+`RTHDAEQ`, `RTEQEX`, `RTKHDRC`, `RTKAMPI` or `RTSPKPT` block, and 34 of those
+are in the Dolby corpus. The 2,138 outside it carry `RTKHDRC` (1,188),
+`RTEQEX` (927), `RTKAMPI` (410), `RTSPKPT` (353) and `RTHDAEQ` (87). Their
+largest vendor prefixes are `1297` (549), `1043` (200), `1462` (198), `144D`
+(188) and `103C` (183). Those counts match by subsystem ID alone, with the
+codec unknown.
+
+**What ships on Linux.** No Linux package or kernel quirk carries the database's
+data for the two tested devices. Checked 2026-10-11, in mainline at a5ebb76233b7
+and tiwai/sound `for-next` at f21d232b2ba3, against upstream linux-firmware
+`main` and the Debian packages installed here:
+
+| Where | Result |
+|---|---|
+| Realtek HDA quirks | `F111:000F` and `F111:010F` get mic setup only; no quirk writes a codec EQ for either SSID |
+| HDA side-codec drivers | Cirrus, TI and Awinic only; no Realtek amp driver |
+| SoundWire RT1320 driver | loads a per-device `rt1320_RAE_<vendor>_<product>_<sku>.dat`; an HDA amp never takes this path |
+| linux-firmware | `realtek/rt1320/` holds three generic patch-code files; `WHENCE` lists no per-device Realtek tuning |
+| SOF (`firmware-sof-signed` 2026.09.1-1) | no Realtek library; topologies are per platform |
+| ALSA UCM, PipeWire, WirePlumber | no configuration names either device |
+| Cirrus, for `1043:1A63` | the kernel's CS35L41 table lists `10431A63`, and linux-firmware ships its `cs35l41-dsp1-spk-prot-10431a63-*` tunings |
+
+The Cirrus row is amp tuning that Windows and Linux both load where the amps
+are fitted. It is a separate layer from the block read as Realtek's codec EQ.
+
+The table can't see codec state that the system firmware programs before Linux
+starts. Two kernel comments point to such state on some machines.
+`alc285_fixup_thinkpad_x1_gen7` routes the speaker to DAC1 because "some eq
+applied secretly" there. `alc274_fixup_bind_dacs` pins the speaker to NID 0x02
+"for EQ". Where firmware already programs a device's codec EQ, Linux can keep
+it, and a preset copying it would then apply it twice.
+
+The two tested devices' firmware verb tables program no codec EQ. Conditions:
+Framework 13 Pro BIOS 3.02
+(`Framework_Laptop_13_Intel_Core_Ultra_S3_BIOS_EFI.zip`, SHA-256 `f2e5a404…`),
+UX3405MA BIOS 311 (`UX3405MAAS311.zip`, `b373851f…`) and UX3405CA BIOS 316
+(`UX3405CAAS316.zip`, `361f9ff2…`), read 2026-10-11. The ASUS images are AMI
+BIOS Guard packages, rebuilt with platomav's BIOSUtilities (70c3a08). All three
+were unpacked with UEFIExtract A75. Each table sits in Intel's
+`SiliconPolicyPeiPostMem` module and starts with the four verbs that set the
+codec's subsystem ID:
+
+| Device | Verbs | Content |
+|---|---|---|
+| Framework 13 Pro (`F111:000F`) | 82 | subsystem ID, 12 pin configs, power, 11 writes to 9 vendor coefficients on NID 0x20 |
+| UX3405MA, UX3405CA (`1043:1A63`) | 64 | subsystem ID and 14 pin configs; no coefficient write |
+
+Neither table writes a band-shaped run of coefficients, and neither touches the
+amp. The UX3405MA image holds 9 more tables and the UX3405CA image 10, keyed by
+other subsystem IDs, mostly Realtek's own `10EC` ones.
+
+On the development machine, firmware-programmed codec state survives into
+Linux, and the firmware also writes through a coefficient mailbox. Conditions:
+ThinkPad X1 Yoga Gen 7 (`21CD`, ALC287, `17AA:22E6`), BIOS N3AET91W from
+Lenovo's `n3auj35w.exe` (SHA-256 `4702ea4b…`), and a root read of the codec's
+142 vendor coefficients on NID 0x20 after a cold boot, 2026-10-11. The table
+sits in Lenovo's `PeimBoardInit` module. It opens with 14 groups of five writes
+to coefficients 0x24–0x29: a target (`0x0010`), a register, two data words and
+a commit (`0xb02c`). The kernel's `alc287_fixup_lenovo_thinkpad_with_alc1318`
+programs an ALC1318 amp through the same coefficients, with target `0x0013` and
+commit `0xb023`. So the 14 groups read as register writes to the speaker amp.
+The subsystem ID, pin configs and codec coefficients follow.
+
+| Non-zero live coefficient | Count |
+|---|---|
+| equal to the firmware table's last write | 10 |
+| written by the firmware, one bit cleared since (`0x1a`, `0x29`) | 2 |
+| equal to a kernel ALC287 or headset-key write | 5 |
+| neither | 60 |
+
+The mailbox coefficients still hold the firmware's last write. The kernel takes
+`ALC285_FIXUP_THINKPAD_X1_GEN7` on this machine, the fixup that notes "some eq
+applied secretly". Neither the firmware table nor the coefficients hold an
+EQ-shaped run. If that EQ exists, the amp writes are the likely place, and they
+can't be read back here.
+
+The Windows driver leaves one of the 142 coefficients changed across a reboot
+into Linux: `0x2b`. Four reads on 2026-10-11 compare it against Linux alone.
+The first was a cold boot after 5 days of Linux uptime. The second followed a
+cold boot into Windows with speaker playback, then a warm reboot into Linux.
+The third came right after a fresh Linux cold boot, and the fourth on that
+boot after a minute of speaker playback:
+
+| Coefficient | Cold boot, 5 days up | After Windows | Fresh cold boot | After playback |
+|---|---|---|---|---|
+| `0x2b` | `0000` | `001f` | `0000` | `0000` |
+| `0x77` | `000a` | `0068` | `0045` | `0005` |
+| `0x78` | `ffe5` | `ffeb` | `001a` | `0008` |
+
+The other 139 coefficients and the `/proc` codec dumps match across all four,
+apart from converter stream tags while playback ran. `0x77` and `0x78` change
+between two Linux boots and with playback alone, so they track live state, not
+Windows. Neither the firmware table nor the kernel's ALC287 path writes
+`0x2b`, and its meaning on the ALC287 is unread. Each condition has one read.
+
+**Related public work.** A web search on 2026-10-11 found no public description
+of `RTAIODAT.DAT` or of its block tags. A Framework forum thread on speaker
+quality
+([page 5](https://community.frame.work/t/speakers-sound-quality/1078?page=5),
+[page 6](https://community.frame.work/t/speakers-sound-quality/1078?page=6))
+holds the closest work. There, Kieran_Levin wrote in 2024: "Latest 13 and 16in
+platforms enable some limited EQ in hardware." He said such data "should just be
+formatted into a byte array, which you should find matches the verb table in
+memory". He then posted an "ALC295 EQVerbtable" of codec coefficient writes for
+the Framework 13 AMD. Users then probed those registers with `hda-verb`. In 2025
+one of them wrote that the filter layout was still "a lot of guessing", and
+asked whether the Framework 13's only filter was a high-pass. The thread names
+no Windows source for the values and finds no Realtek datasheet. It is
+consistent with Realtek codecs carrying a hardware EQ. No Framework entry
+carries `RTHDAEQ`, so it doesn't test that block. It also suggests that a
+device's firmware can program codec EQ by itself. The kernel's own per-device
+amp setups, such as the Razer table above and HP's `alc285-hp-amp-init` model,
+are verb sequences written into the kernel per machine, not reads of this file.
+
+If the readings hold, both blocks shape what Windows plays after Dolby, since
+the codec and the amp sit after every Windows APO. Whether Windows applies
+`RTHDAEQ0` on the Zenbook is unmeasured. If the EQ runs in the codec, as its
+kernel-only reader suggests, it sits after the point a Windows loopback capture
+taps, so only an acoustic capture can validate it. No layer is built. On the
+Framework the gap would be an amp no kernel quirk or driver programs, a kernel
+matter this project reports and doesn't touch.
+
+Open:
+
+- Every field meaning above is a hypothesis. A capture of a decoded block,
+  or Realtek documentation, would confirm or refute it.
+- Whether the driver applies `RTHDAEQ0` on the UX3405 is unmeasured. A phone or
+  measurement-mic capture, Windows against Linux with no preset, would show the
+  700 Hz notch if it is applied.
+- Only the firmware verb tables were read. Firmware could still program the
+  codec elsewhere, such as from a DXE driver. A codec coefficient dump on
+  Linux would show it, though the register layout is itself undocumented.
+- What the Framework table's 11 coefficient writes do is unread, as are the
+  development machine's 14 amp register writes.
+- What `0x2b` controls on the ALC287 is unread. Whether it explains the audio
+  quirks heard on that machine after rebooting from Windows is untested.
+- Unread: the lead filter's type, the `EQX3`/`EQX4` type codes, the words
+  after each set, `EQX5`, and which of `RTKHDRC`'s 10 records does what.
+  Peaking biquads with bandwidth as Q is an assumption.
+- The `RTKHDRC` field readings rest on value distributions alone.
+- These blocks carry tuning for 2,138 subsystem IDs with no Dolby XML. A
+  preset built from them alone falls outside the converter's derivability
+  rule, which names the DAX3 XML and supported vendor APO configs.
+- The `1043:1A63` quirk chains to the CS35L41 SPI fixup, which loads the
+  Cirrus tunings above. #24's `--speaker-info` detected no firmware-gated amp.
+  Which UX3405s carry those amps is unknown.
+- `AFX0`, `AFX1` and the `RTKAMPI` register map are unread, so the
+  Framework's amp voicing can't be read out of its program.
+- 380 entries hold `rtkhdasetting/` ZIP archives: a `setting.ini` install
+  manifest and per-OEM archives, such as `AsusCusDat.zip` with a
+  `Gen3pKey.dat` property-key store, apparently Realtek APO settings. No
+  corpus subsystem ID on a Realtek codec reaches one, so they are unread.
 
 ## Elsewhere
 
