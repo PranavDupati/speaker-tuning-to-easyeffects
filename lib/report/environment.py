@@ -509,6 +509,28 @@ def check_preset_kernel(preset_json: dict, irs_stems: set,
         f"speaker-correction filter loads {name}.irs.")
 
 
+# Where EasyEffects 8 keeps the fallback, from its PresetsDialog.qml: the
+# Presets dialog's Autoload tab, a "Fallback Preset" list with a switch.
+_AUTOLOAD_TAB = "the Autoload tab of EasyEffects' Presets dialog"
+
+
+def _fallback_remedy(rc_data: dict) -> str:
+    """How to stop a speaker tuning playing on another output, given what the
+    fallback is set to. `--autoload` turns the fallback on only when it is
+    off (lib/preset/autoload.py), so it is offered only then."""
+    fallback = rc_data.get("fallback_preset", "")
+    if rc_data.get("uses_fallback") and fallback == BYPASS_PRESET_NAME:
+        return (f"The fallback already points at '{BYPASS_PRESET_NAME}', so "
+                "an autoload entry for this output, or a pick by hand, loaded "
+                f"it: check {_AUTOLOAD_TAB}.")
+    if rc_data.get("uses_fallback"):
+        return (f"The fallback points at '{fallback}': in {_AUTOLOAD_TAB}, "
+                f"set Fallback Preset to '{BYPASS_PRESET_NAME}'.")
+    return (f"Re-run the script with --autoload, or in {_AUTOLOAD_TAB}, turn "
+            f"on the switch beside Fallback Preset and pick "
+            f"'{BYPASS_PRESET_NAME}'.")
+
+
 def loaded_preset_status(rc_data: dict, generated_names,
                          live_preset: str | None = None,
                          output_kind: str = "unknown",
@@ -584,6 +606,15 @@ def loaded_preset_status(rc_data: dict, generated_names,
         matched = fallback
     else:
         matched = ""
+    if matched and output_kind == "other":
+        # The fault behind "my headphones sound over-processed": a speaker
+        # tuning on an output it was never made for, which the run itself
+        # refuses to cause (lib/preset/reload.py). The same confident gate as
+        # the bypass branch above, so a probe that failed stays on the PASS.
+        return CheckResult(DOCTOR_WARN, "Selected preset",
+            f"'{matched}' is a speaker tuning, but EasyEffects is playing it "
+            "on an output that isn't the internal speakers. "
+            + _fallback_remedy(rc_data))
     if matched:
         return CheckResult(DOCTOR_PASS, "Selected preset",
             f"EasyEffects last loaded '{matched}'.")

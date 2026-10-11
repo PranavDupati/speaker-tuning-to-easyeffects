@@ -2328,8 +2328,9 @@ def test_loaded_preset_bypass_off_the_speakers_ignores_a_foreign_autoload():
 
 @pytest.mark.parametrize("kind", ["unknown", "speaker", "other"])
 def test_loaded_preset_other_branches_ignore_the_output_kind(kind):
-    """The softening is scoped to the bypass preset. A Dolby preset still
-    passes and a foreign one still warns wherever the audio is going."""
+    """The softening is scoped to the bypass preset. A foreign preset still
+    warns wherever the audio is going, and a Dolby one passes on the
+    speakers and on an output the probe couldn't classify."""
     good = {"last_output_preset": "Dolby-Balanced", "fallback_preset": "",
             "uses_fallback": False}
     bad = {"last_output_preset": "SomethingElse", "fallback_preset": "",
@@ -2337,10 +2338,33 @@ def test_loaded_preset_other_branches_ignore_the_output_kind(kind):
     names = ["Dolby-Balanced", BYPASS_PRESET_NAME]
     assert loaded_preset_status(
         good, names, output_kind=kind,
-        speaker_preset="Dolby-Balanced").status == DOCTOR_PASS
+        speaker_preset="Dolby-Balanced").status == (
+            DOCTOR_WARN if kind == "other" else DOCTOR_PASS)
     assert loaded_preset_status(
         bad, names, output_kind=kind,
         speaker_preset="Dolby-Balanced").status == DOCTOR_WARN
+
+
+@pytest.mark.parametrize("uses,fallback,says,not_says", [
+    (False, "", "--autoload", "already points"),
+    (True, BYPASS_PRESET_NAME, "already points", "--autoload"),
+    # --autoload leaves an enabled fallback alone, so it isn't offered here.
+    (True, "Dolby-Warm", "points at 'Dolby-Warm'", "--autoload"),
+])
+def test_a_speaker_tuning_off_the_speakers_warns_with_the_fix_for_its_fallback(
+        uses, fallback, says, not_says):
+    """TRAP: 'my Bluetooth headphones sound over-processed' is a speaker tuning
+    playing on a headset — the harm lib/preset/reload.py refuses to cause.
+    This passed, as 'EasyEffects last loaded Dolby-Balanced'."""
+    rc = {"last_output_preset": "Dolby-Balanced", "fallback_preset": fallback,
+          "uses_fallback": uses}
+    r = loaded_preset_status(rc, ["Dolby-Balanced", BYPASS_PRESET_NAME],
+                             output_kind="other",
+                             speaker_preset="Dolby-Balanced")
+    assert r.status == DOCTOR_WARN
+    assert "isn't the internal speakers" in r.detail
+    assert "Autoload tab" in r.detail
+    assert says in r.detail and not_says not in r.detail
 
 
 def test_loaded_preset_names_the_matched_fallback_not_the_loaded():

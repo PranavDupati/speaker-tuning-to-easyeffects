@@ -167,9 +167,12 @@ mitigates this by also writing the `Nothing` bypass preset and turning on
 EasyEffects' global Fallback Preset, pointed at `Nothing`. Any sink without its
 own autoload entry then falls back to a no-op chain. An existing `Nothing.json`
 preset is preserved. An already-enabled fallback is left untouched, whatever
-preset it points at. If the Dolby tuning still plays on other outputs, check in
-EasyEffects' autoload settings that the Fallback Preset is on and points at
-`Nothing`, then restart EasyEffects.
+preset it points at.
+
+<a id="if-the-dolby-tuning-still-plays-on-other-outputs"></a>
+If the Dolby tuning still plays on other outputs, `--doctor` says so. Open the
+Presets dialog in EasyEffects, go to its Autoload tab, turn on the switch beside
+Fallback Preset and pick `Nothing`. Then restart EasyEffects.
 
 ## Flatpak EasyEffects
 

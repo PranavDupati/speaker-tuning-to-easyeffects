@@ -199,9 +199,9 @@ Each reports what it finds and what to do about it.
   [Get the tuning XML](docs/getting-the-xml.md) another way.
 - **The effect stops after you close EasyEffects or reboot.**
   [Enable its Background Service](docs/troubleshooting.md#troubleshooting-a-preset-that-sounds-like-nothing).
-- **The Dolby tuning plays on HDMI, Bluetooth or a headset.**
-  [Let autoload bypass other outputs](docs/dolby-to-easyeffects.md#how-speaker-detection-and-the-bypass-fallback-work).
-  It needs `--autoload`.
+- **The Dolby tuning plays on HDMI, Bluetooth or a headset.** `--doctor` says
+  what to change.
+  [Stop it playing there](docs/dolby-to-easyeffects.md#if-the-dolby-tuning-still-plays-on-other-outputs).
 - **Re-ran the script but hear no change.** Pick the preset again in
   EasyEffects' Presets menu. Only releases whose changelog entry is tagged
   **[AUDIBLE]** change the sound: [Staying up to date](#staying-up-to-date).

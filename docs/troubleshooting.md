@@ -17,9 +17,9 @@ reports what it finds and what to do about it.
   harsh.** [Rebuild the preset without the filter responsible](filters.md).
 - **The effect is gone after I close EasyEffects or reboot.**
   [Enable its Background Service](#troubleshooting-a-preset-that-sounds-like-nothing).
-- **The Dolby tuning plays on HDMI, Bluetooth or a headset.**
-  [Let autoload bypass other outputs](dolby-to-easyeffects.md#how-speaker-detection-and-the-bypass-fallback-work).
-  It needs `--autoload`.
+- **The Dolby tuning plays on HDMI, Bluetooth or a headset.** `--doctor` says
+  what to change.
+  [Stop it playing there](dolby-to-easyeffects.md#if-the-dolby-tuning-still-plays-on-other-outputs).
 - **I re-ran the script but hear no change.** The run can't reload a Flatpak
   EasyEffects, so pick the preset again in its Presets menu. With `--autoload`,
   restarting EasyEffects works too. Only releases whose changelog entry is

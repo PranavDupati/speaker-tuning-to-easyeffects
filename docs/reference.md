@@ -352,7 +352,10 @@ quiet when the default coupled-bands mapping limits any zone. Under
   this script generated. It is UNKNOWN when nothing settles it. The gate is
   `sinks.sink_kind(...) == "other"`, never `not is_internal_speaker(...)`. That
   one folds "don't know" into "not a speaker", and would drop the warning on a
-  failed probe.
+  failed probe. On the same confident gate, a generated preset loaded on a
+  non-speaker output is a WARN: a speaker tuning playing on a headset or HDMI.
+  Its remedy follows the fallback setting, since `--autoload` turns the
+  fallback on only when it is off.
 - The equalizer is parametric only, with no graphic-EQ mode. It is the LSP
   plugin.
 

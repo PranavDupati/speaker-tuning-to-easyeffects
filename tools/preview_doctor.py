@@ -118,6 +118,12 @@ SCENARIOS: dict[str, dict] = {
                "the speakers (the run was never given --autoload)",
         "sinks": [_SPEAKER, _HEADSET], "default": _HEADSET["name"],
         "autoload": {}, "preset": _BYPASS},
+    "dolby-on-headset": {
+        "why": "playing through a Bluetooth headset with a generated speaker "
+               "preset loaded, and no fallback set — the over-processed "
+               "headphones fault",
+        "sinks": [_SPEAKER, _HEADSET], "default": _HEADSET["name"],
+        "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced"},
     "output-unknown": {
         "why": "default sink is EasyEffects' own virtual node, which says "
                "nothing about where the audio physically comes out",

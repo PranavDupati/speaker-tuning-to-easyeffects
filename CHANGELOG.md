@@ -131,6 +131,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- `--doctor` warns when EasyEffects plays the Dolby speaker tuning on another
+  output, such as Bluetooth headphones, and says where EasyEffects' Fallback
+  Preset setting is. It used to report that preset as fine.
+
 - The PipeWire route now catches a PipeWire that can't load LV2 plugins, such
   as Fedora without `pipewire-module-filter-chain-lv2`. The converter refuses
   to write the conf, and `--doctor` and the post-restart check say so, naming

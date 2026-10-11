@@ -42,6 +42,8 @@ _EXPECTED = {
     "bypass-on-speakers": ("speaker", True, DOCTOR_WARN),
     "output-other-autoloaded": ("other", True, DOCTOR_PASS),
     "output-other-no-autoload": ("other", False, DOCTOR_UNKNOWN),
+    # The speaker tuning itself on the headset: the over-processed fault.
+    "dolby-on-headset": ("other", True, DOCTOR_WARN),
     "output-unknown": ("unknown", False, DOCTOR_WARN),
     "presets-from-another-version": ("speaker", True, DOCTOR_PASS),
     "no-pipewire": ("unknown", False, DOCTOR_WARN),
