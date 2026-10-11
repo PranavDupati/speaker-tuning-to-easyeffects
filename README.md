@@ -124,8 +124,8 @@ The scripts need no root: they refuse to run under `sudo`. By default they keep
 what they write under your home directory, apart from temporary files they
 delete. To remove what a run wrote, see
 [Undo](docs/dolby-to-easyeffects.md#undo) for EasyEffects, or
-[Quick start (PipeWire)](docs/dolby-to-pipewire.md#quick-start-pipewire) for
-the filter.
+[PipeWire filter-chain](docs/dolby-to-pipewire.md#remove-the-filter) for the
+filter.
 
 ## Install
 

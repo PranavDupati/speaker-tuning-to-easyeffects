@@ -9,17 +9,15 @@ or not EasyEffects is installed.
 [`docs/ee-to-pipewire.md`](ee-to-pipewire.md) has the design notes and
 equivalence measurements.
 
-## Quick start (PipeWire)
+<a id="quick-start-pipewire"></a>
 
-One command goes from tuning XML to an active sink. First get the code, as in
-step 1 of the README's [Quick start](../README.md#quick-start).
+## What the run does
 
-Prerequisites are NumPy and SciPy, which the generator needs, and the LSP/Calf
-LV2 plugins. [Install](../README.md#install) and *Plugin dependencies and
-validation* below cover them. It finds the tuning the same way as the
-EasyEffects script: on a mounted Windows partition, in a driver download you
-pass it, or through `--windows` or an XML path, as
-[Extracting the XML](getting-the-xml.md) describes.
+The README's [Quick start](../README.md#quick-start) gets the code, its
+dependencies and your tuning, then runs this script under
+[Without EasyEffects](../README.md#without-easyeffects). On top of those, this
+route needs the LSP and Calf LV2 plugins: see *Plugin dependencies and
+validation* below.
 
 ```bash
 python3 dolby_to_pipewire.py         # add --no-activate to restart PipeWire yourself
@@ -58,9 +56,12 @@ See [Limitations](ee-to-pipewire.md#limitations--known-gaps).
   sound or it doesn't sound right: `python3 dolby_to_pipewire.py --doctor`
   reports what's installed, what PipeWire is doing with it, and what to do
   about each problem it finds.
-- **To remove the filter:** delete
-  `~/.config/pipewire/pipewire.conf.d/Dolby_Balanced.conf` and the `.irs` beside
-  it, then run `systemctl --user restart pipewire pipewire-pulse`.
+- <a id="remove-the-filter"></a>**To remove the filter:** run the two lines the
+  run printed after "To undo". They delete the exact `.conf` and `.irs` files
+  it wrote, then restart PipeWire. Without that output, `--doctor` lists the
+  confs it finds in `~/.config/pipewire/pipewire.conf.d/`. Delete those and the
+  `.irs` beside each, then run
+  `systemctl --user restart pipewire pipewire-pulse`.
 
 ## Which should I use?
 
