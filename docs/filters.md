@@ -18,7 +18,9 @@ which stages it built.
 
 Add `--disable NAME` to the command you ran before,
 such as `python3 dolby_to_easyeffects.py --autoload --disable volmax`, and
-repeat it as many times as needed:
+repeat it as many times as needed. If you use the Flatpak EasyEffects, pick
+the preset again in its Presets menu after each rebuild: the run can't reload
+it.
 
 | Name | What to try if you hear... |
 |------|----------------------------|
