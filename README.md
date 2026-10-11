@@ -23,13 +23,6 @@ PipeWire filter-chain, with no GUI and no extra daemon. See
 
 ## Quick start
 
-> **EasyEffects 8.x required.** If your distro ships EasyEffects 7, install the
-> [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects). The EE 7 and
-> EE 8 preset formats aren't compatible. Debian trixie, Ubuntu 25.10 and
-> Fedora 43, and earlier releases of each, ship EE 7 or older. Or skip EasyEffects: the
-> [PipeWire filter-chain](docs/dolby-to-pipewire.md) runs the same tuning
-> without it.
-
 1. Download the code. Take the *Source code (zip)* from the
    [latest release](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/releases/latest),
    unzip it, and open a terminal in the unzipped folder.
@@ -41,63 +34,98 @@ PipeWire filter-chain, with no GUI and no extra daemon. See
    cd speaker-tuning-to-easyeffects
    ```
 
-2. Install EasyEffects 8.x. Prefer your distribution's `easyeffects` package
+2. Install Python 3 with NumPy and SciPy. [Install](#install) has the command
+   for your distribution.
+
+3. Follow [With EasyEffects](#with-easyeffects), or
+   [Without EasyEffects](#without-easyeffects) to run the tuning as a PipeWire
+   filter instead.
+   [Which should I use?](docs/dolby-to-pipewire.md#which-should-i-use)
+   compares them.
+
+### With EasyEffects
+
+1. Install EasyEffects 8.x. Prefer your distribution's `easyeffects` package
    when it ships version 8, since it then updates with the rest of your
-   system. If it ships an older version, use the Flatpak instead:
+   system. Version 7 presets aren't compatible, so if it ships an older
+   version, use the Flatpak instead:
 
    ```bash
    flatpak install flathub com.github.wwmm.easyeffects
    ```
 
-   No `flatpak` command, or no `flathub` remote? Your distribution's setup is
-   on [flathub.org/setup](https://flathub.org/setup).
+   No `flatpak` command, or no `flathub` remote? See
+   [flathub.org/setup](https://flathub.org/setup).
 
-   Then install the dependencies listed under [Install](#install). In short:
-   Python 3 with NumPy and SciPy.
+2. With a Windows partition mounted, run:
 
-3. Run the script, with the line that matches where your tuning is:
+   ```bash
+   python3 dolby_to_easyeffects.py --autoload
+   ```
 
-   - **A Windows partition is mounted**, or a driver package is unpacked in
-     the current directory. The script finds the tuning itself:
+   With no Windows, download your laptop's audio driver from its maker's
+   support site, then pass that file:
 
-     ```bash
-     python3 dolby_to_easyeffects.py --autoload
-     ```
+   ```bash
+   python3 dolby_to_easyeffects.py ~/Downloads/your-audio-driver.exe --autoload
+   ```
 
-   - **No Windows.** Download your laptop's audio driver from its maker's
-     support site and pass the file. The script unpacks the tuning from it,
-     and names the tool to install if it needs one.
-     [Extracting the XML](docs/getting-the-xml.md) says which downloads carry
-     the tuning, and has a fetcher that downloads a Lenovo's for you:
+   `--autoload` sets EasyEffects to apply the Dolby correction on your internal
+   speaker automatically. See [Autoload](docs/dolby-to-easyeffects.md#autoload)
+   for details.
 
-     ```bash
-     python3 dolby_to_easyeffects.py ~/Downloads/your-audio-driver.exe --autoload
-     ```
-
-   - **You know where it is**: a Windows directory, or the tuning XML itself:
-
-     ```bash
-     python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows --autoload
-     python3 dolby_to_easyeffects.py path/to/DEV_0287_SUBSYS_*.xml --autoload
-     ```
-
-`--autoload` sets EasyEffects to apply the Dolby correction on your internal
-speaker automatically. Skip it if you'd rather select Dolby-Balanced,
-Dolby-Detailed or Dolby-Warm yourself under Presets. See
-[Autoload](docs/dolby-to-easyeffects.md#autoload) for details.
-
-To keep the correction after you close EasyEffects or reboot, enable
-Background Service and Autostart on login in EasyEffects' preferences.
-
-**Safe to try.** The three scripts need no root: they refuse to run under
-`sudo`. By default they keep what they write under your home directory, apart
-from temporary files they delete.
-[Undo](docs/dolby-to-easyeffects.md#undo) lists what a run writes and how to
-remove it. On the filter-chain, see
-[PipeWire filter-chain](docs/dolby-to-pipewire.md), under "To remove the
-filter".
+3. Open EasyEffects: Dolby-Balanced should be selected under Presets, as
+   below. If not, as with the Flatpak, pick it there. To keep the correction
+   after a reboot, turn on *Enable service mode* and *Autostart on login* under
+   Preferences → Background Service.
 
 ![Selecting a generated Dolby preset in EasyEffects](docs/images/ee-preset-select.jpg)
+
+### Without EasyEffects
+
+1. This route also needs the LSP and Calf LV2 plugins and `lv2info`:
+   [install them](docs/dolby-to-pipewire.md#plugin-dependencies-and-validation)
+   first.
+
+2. The run restarts PipeWire, so sound cuts out for a moment. With a Windows
+   partition mounted, run:
+
+   ```bash
+   python3 dolby_to_pipewire.py
+   ```
+
+   With no Windows, download your laptop's audio driver from its maker's
+   support site, then pass that file:
+
+   ```bash
+   python3 dolby_to_pipewire.py ~/Downloads/your-audio-driver.exe
+   ```
+
+   The filter then applies each time PipeWire starts. The run names any plugin
+   it needs that's missing, and prints how to remove what it installed. Check
+   it later with `python3 dolby_to_pipewire.py --doctor`.
+
+### If the script can't find your tuning
+
+[Extracting the XML](docs/getting-the-xml.md) says which downloads carry the
+tuning, and has a fetcher that downloads a Lenovo's for you.
+
+To skip the automatic search, point either script at a Windows directory or a
+tuning XML yourself:
+
+```bash
+python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows --autoload
+python3 dolby_to_pipewire.py path/to/DEV_0287_SUBSYS_*.xml
+```
+
+### Safe to try
+
+The scripts need no root: they refuse to run under `sudo`. By default they keep
+what they write under your home directory, apart from temporary files they
+delete. To remove what a run wrote, see
+[Undo](docs/dolby-to-easyeffects.md#undo) for EasyEffects, or
+[Quick start (PipeWire)](docs/dolby-to-pipewire.md#quick-start-pipewire) for
+the filter.
 
 ## Install
 

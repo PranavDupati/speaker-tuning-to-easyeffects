@@ -53,7 +53,7 @@ It checks the common causes and prints a pasteable report:
   speaker-correction filter loads nothing, so the preset is effectively
   bypassed. This repo targets EasyEffects 8.x. If your distro ships 7, install
   the [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects), as the
-  note in the README's [Quick start](../README.md#quick-start) says.
+  README's [With EasyEffects](../README.md#with-easyeffects) step says.
 - **Wrong install location.** The presets were written to the Flatpak path while
   you run the native package, or vice versa. EasyEffects never sees them.
 - **A missing impulse file.** The convolver references a `.irs` that isn't in

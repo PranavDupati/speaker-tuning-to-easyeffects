@@ -16,9 +16,10 @@ step 1 of the README's [Quick start](../README.md#quick-start).
 
 Prerequisites are NumPy and SciPy, which the generator needs, and the LSP/Calf
 LV2 plugins. [Install](../README.md#install) and *Plugin dependencies and
-validation* below cover them. The tuning XML is located the same way as in the
-main [Quick start](../README.md#quick-start): auto-discovery, `--windows`, or
-[manual extraction](getting-the-xml.md).
+validation* below cover them. It finds the tuning the same way as the
+EasyEffects script: on a mounted Windows partition, in a driver download you
+pass it, or through `--windows` or an XML path, as
+[Extracting the XML](getting-the-xml.md) describes.
 
 ```bash
 python3 dolby_to_pipewire.py         # add --no-activate to restart PipeWire yourself
