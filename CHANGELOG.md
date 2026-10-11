@@ -89,6 +89,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+## v2026.10 — Driver Downloads as Input and Surface Tuning
+
+The converters take a laptop's driver download in place of the tuning XML.
+Microsoft Surface speakers get Microsoft's own tuning on top of Dolby's.
+Fixes widen where the scripts run (RHEL 9, Fedora's PipeWire, openSUSE Leap,
+Ubuntu 24.04) and sharpen `--doctor`'s EasyEffects checks.
+
 ### Added
 
 - `dolby_to_easyeffects.py` and `dolby_to_pipewire.py` take your laptop's
