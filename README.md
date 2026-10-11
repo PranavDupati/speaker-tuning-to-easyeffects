@@ -49,6 +49,9 @@ PipeWire filter-chain, with no GUI and no extra daemon. See
    flatpak install flathub com.github.wwmm.easyeffects
    ```
 
+   No `flatpak` command, or no `flathub` remote? Your distribution's setup is
+   on [flathub.org/setup](https://flathub.org/setup).
+
    Then install the dependencies listed under [Install](#install). In short:
    Python 3 with NumPy and SciPy.
 
