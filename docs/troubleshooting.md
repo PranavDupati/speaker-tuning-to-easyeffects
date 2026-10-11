@@ -59,8 +59,9 @@ It checks the common causes and prints a pasteable report:
 - **A missing impulse file.** The convolver references a `.irs` that isn't in
   the irs directory, so the speaker correction is silent.
 - **No Dolby preset selected**, or EasyEffects' global bypass is on. Its switch
-  is the highlighted top-left toggle below. If your output is a headset, HDMI or
-  Bluetooth, having `Nothing` selected is the expected
+  is the highlighted top-left toggle below. If you use the Flatpak EasyEffects,
+  the run can't select the preset: pick it in Presets. If your output is a
+  headset, HDMI or Bluetooth, having `Nothing` selected is the expected
   [bypass fallback](dolby-to-easyeffects.md#autoload), not a fault. `--doctor`
   says so, and reports which preset your speakers autoload instead.
 - **EasyEffects not running in the background.** The preset only processes audio

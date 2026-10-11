@@ -248,8 +248,9 @@ page.
 Entries tagged **[AUDIBLE]** change the *sound* of the generated preset. When
 you see one, get the
 [latest release](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/releases/latest)
-or `git pull`, and **re-run the script** to regenerate and reload your preset,
-or the `dolby_to_pipewire.py` wrapper if you use it. The run loads it into a
+or `git pull`, and **re-run the script** with the same flags as before to
+regenerate and reload your preset, or the `dolby_to_pipewire.py` wrapper if you
+use it. The run loads it into a
 running EasyEffects when it can, and says what to pick otherwise. Other entries
 are tooling,
 packaging, docs, or new-device support that doesn't alter existing devices'

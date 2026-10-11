@@ -17,19 +17,18 @@ describes.
 for your machine type from Lenovo's update catalog, downloads and
 checksum-verifies it, and extracts the DAX3 tuning XML. It needs
 [`innoextract`](https://constexpr.org/innoextract/install). If it's missing,
-the fetcher says how to install it on your distribution. It then
-prints the directory to pass to either converter:
+the fetcher says how to install it on your distribution:
 
 ```bash
 python3 tools/fetch_driver/get_lenovo_dax_xml.py --dry-run   # show what it resolved
 python3 tools/fetch_driver/get_lenovo_dax_xml.py             # fetch, verify, unpack
 ```
 
-From the repo root, the next step is just `python3 dolby_to_easyeffects.py`,
-with no path to pass. The fetcher unpacks into the repo's `driver-cache/`, which
-the converters' autoprobe already covers. It prints the exact command to run,
-with `--windows` filled in on the rare occasions it's needed. Add `--autoload`,
-as in the README's [Quick start](../README.md#quick-start), to have EasyEffects
+It then prints the command to run next. From the repo root that is usually just
+`python3 dolby_to_easyeffects.py`, with no path: the fetcher unpacks into the
+repo's `driver-cache/`, which the run searches by itself. When it wouldn't find
+it there, the printed command has `--windows` filled in. Add `--autoload`, as
+in the README's [Quick start](../README.md#quick-start), to have EasyEffects
 apply the preset automatically.
 
 ## From a vendor driver download
