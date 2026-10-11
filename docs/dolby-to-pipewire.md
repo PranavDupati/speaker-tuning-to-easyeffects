@@ -132,16 +132,31 @@ distribution. Install the **LV2 builds**, because the base `lsp-plugins` and
 `calf` packages don't all ship the `.lv2` bundle PipeWire loads:
 
 - **Debian/Ubuntu/Mint/Pop!_OS:**
-  `sudo apt install lsp-plugins-lv2 calf-plugins`
+  ```bash
+  sudo apt install lsp-plugins-lv2 calf-plugins
+  ```
 - **Fedora/RHEL/Rocky/Alma:**
-  `sudo dnf install lsp-plugins-lv2 lv2-calf-plugins`
-- **openSUSE:** `sudo zypper install lv2-lsp-plugins`, plus Calf from
-  [Packman](https://packman.links2linux.de/), since openSUSE's own repositories
-  don't carry it
-- **Arch/Manjaro/EndeavourOS:** `sudo pacman -S lsp-plugins-lv2 calf`
-- **Alpine:** `sudo apk add lsp-plugins-lv2 calf-lv2`
-- **Gentoo:** `sudo emerge media-libs/lsp-plugins media-plugins/calf`, with
-  `USE=lv2` for `media-plugins/calf`
+  ```bash
+  sudo dnf install lsp-plugins-lv2 lv2-calf-plugins
+  ```
+- **openSUSE:**
+  ```bash
+  sudo zypper install lv2-lsp-plugins
+  ```
+  Add Calf from [Packman](https://packman.links2linux.de/), since openSUSE's
+  own repositories don't carry it.
+- **Arch/Manjaro/EndeavourOS:**
+  ```bash
+  sudo pacman -S lsp-plugins-lv2 calf
+  ```
+- **Alpine:**
+  ```bash
+  sudo apk add lsp-plugins-lv2 calf-lv2
+  ```
+- **Gentoo:** set `USE=lv2` for `media-plugins/calf` first.
+  ```bash
+  sudo emerge media-libs/lsp-plugins media-plugins/calf
+  ```
 - **NixOS:** add `pkgs.lsp-plugins` and `pkgs.calf` to
   `environment.systemPackages`, then run `nixos-rebuild switch`. A `nix-shell`
   won't do, since PipeWire runs outside it
@@ -149,14 +164,36 @@ distribution. Install the **LV2 builds**, because the base `lsp-plugins` and
 Add your distribution's `lv2info` if you want the converter to check the plugin
 set before it writes anything:
 
-- **Debian/Ubuntu/Mint/Pop!_OS:** `sudo apt install lilv-utils`
-- **Fedora/RHEL/Rocky/Alma:** `sudo dnf install lilv`
-- **openSUSE:** `sudo zypper install lilv`
-- **Arch/Manjaro/EndeavourOS:** `sudo pacman -S lilv-tools`
-- **Alpine:** `sudo apk add lilv`
-- **Gentoo:** `sudo emerge media-libs/lilv` with `USE=tools`
-- **NixOS:** `nix-shell -p lilv`. The converter runs `lv2info` itself, so this
-  one needn't be visible to PipeWire
+- **Debian/Ubuntu/Mint/Pop!_OS:**
+  ```bash
+  sudo apt install lilv-utils
+  ```
+- **Fedora/RHEL/Rocky/Alma:**
+  ```bash
+  sudo dnf install lilv
+  ```
+- **openSUSE:**
+  ```bash
+  sudo zypper install lilv
+  ```
+- **Arch/Manjaro/EndeavourOS:**
+  ```bash
+  sudo pacman -S lilv-tools
+  ```
+- **Alpine:**
+  ```bash
+  sudo apk add lilv
+  ```
+- **Gentoo:** set `USE=tools` for `media-libs/lilv` first.
+  ```bash
+  sudo emerge media-libs/lilv
+  ```
+- **NixOS:**
+  ```bash
+  nix-shell -p lilv
+  ```
+  The converter runs `lv2info` itself, so this one needn't be visible to
+  PipeWire.
 
 You shouldn't need these lists on a run that fails. The converter prints
 whichever line matches your `/etc/os-release`, derivatives included. On a

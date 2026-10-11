@@ -151,25 +151,39 @@ them, everything works in plain monochrome.
 Install commands for your distro:
 
 - **Debian/Ubuntu/Mint/Pop!_OS:**
-  `sudo apt install python3-numpy python3-scipy python3-rich python3-rich-argparse`
-  — on older releases that don't package `python3-rich-argparse`, it's safe
-  to leave it out
+  ```bash
+  sudo apt install python3-numpy python3-scipy python3-rich python3-rich-argparse
+  ```
+  On older releases that don't package `python3-rich-argparse`, it's safe to
+  leave it out.
 - **Fedora/RHEL/Rocky/Alma:**
-  `sudo dnf install python3-numpy python3-scipy python3-rich python3-rich-argparse`
-  — on RHEL, Rocky and Alma, `python3-rich` and `python3-rich-argparse` come
-  from EPEL, so leave out whichever dnf can't find
+  ```bash
+  sudo dnf install python3-numpy python3-scipy python3-rich python3-rich-argparse
+  ```
+  On RHEL, Rocky and Alma, `python3-rich` and `python3-rich-argparse` come from
+  EPEL, so leave out whichever dnf can't find.
 - **openSUSE:**
-  `sudo zypper install python3-numpy python3-scipy python3-rich python3-rich-argparse`
-  — Leap 16.0 has no SciPy package, so use the virtual environment below
-  there
+  ```bash
+  sudo zypper install python3-numpy python3-scipy python3-rich python3-rich-argparse
+  ```
+  Leap 16.0 has no SciPy package, so use the virtual environment below there.
 - **Arch/Manjaro/EndeavourOS:**
-  `sudo pacman -S python-numpy python-scipy python-rich python-rich-argparse`
-- **Alpine:** `sudo apk add py3-numpy py3-scipy py3-rich` — Alpine has no
-  rich-argparse package, so `--help` stays plain there
+  ```bash
+  sudo pacman -S python-numpy python-scipy python-rich python-rich-argparse
+  ```
+- **Alpine:**
+  ```bash
+  sudo apk add py3-numpy py3-scipy py3-rich
+  ```
+  Alpine has no rich-argparse package, so `--help` stays plain there.
 - **Gentoo:**
-  `sudo emerge dev-python/numpy dev-python/scipy dev-python/rich dev-python/rich-argparse`
+  ```bash
+  sudo emerge dev-python/numpy dev-python/scipy dev-python/rich dev-python/rich-argparse
+  ```
 - **NixOS:**
-  `nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy rich rich-argparse ])"`
+  ```bash
+  nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy rich rich-argparse ])"
+  ```
 
 If your distro isn't listed or you'd rather not touch system
 packages, a Python virtual environment works too:

@@ -16,8 +16,8 @@ did name. A reader who pastes a README line and a reader who pastes what the
 tool printed have to end up in the same place.
 
 Like `tests/test_docs_cli_sync.py`, this locks names, order and labels — not
-the prose around them. A trailing "— …" clause on a bullet is the row's own
-caveat and is deliberately not compared; what is compared is the command.
+the prose around them. A row's caveat prose is deliberately not compared;
+what is compared is the command in the row's fenced block.
 """
 
 from __future__ import annotations
@@ -45,16 +45,14 @@ LISTS = (
     ("Add your distribution's `lv2info`", (packages.LV2INFO,)),
 )
 
-_BULLET = re.compile(r"^- \*\*(?P<label>[^*]+):\*\*\s*(?P<rest>.*)$", re.M)
+_BULLET = re.compile(r"^- \*\*(?P<label>[^*]+):\*\*", re.M)
+# Each row carries its command in a fenced block, which GitHub renders with
+# a copy button. An inline command reads here as a row with none.
+_FENCE = re.compile(r"^[ \t]*```[^\n]*\n(?P<body>.*?)^[ \t]*```", re.M | re.S)
 _FAMILY_OF_LABEL = {label: fam for fam, label in packages.LABELS.items()}
 
-# What makes a backticked span a *command* rather than prose with code in it.
-# The whole invocation prefix, not just its first word, and derived from the
-# module's own so a new family cannot be added on one side only. Both halves
-# of that matter in the NixOS rows, which name `pkgs.lsp-plugins` in a
-# sentence about `environment.systemPackages` and mention a bare `nix-shell`
-# in the reason it won't work — neither is a command, however much each looks
-# like one inside backticks.
+# What makes a fenced line a *command*: the whole invocation prefix, derived
+# from the module's own so a new family cannot be added on one side only.
 _VERBS = tuple(f"{v} " for v in packages._INSTALL.values() if v) + (
     "nix-shell -p ",)
 
@@ -62,9 +60,9 @@ _VERBS = tuple(f"{v} " for v in packages._INSTALL.values() if v) + (
 def _rows(lead_in: str) -> list[tuple[str, str]]:
     """The `(label, command)` of each bullet under `lead_in`.
 
-    The first backticked span that begins with a package-manager verb, because
-    a row may carry a caveat with code in it (`media-plugins/calf` needs
-    `USE=lv2`) and the command is what this trap is about. An empty string
+    The first fenced line that begins with a package-manager verb, because
+    a row's caveat may carry code too (`media-plugins/calf` needs `USE=lv2`)
+    and the command is what this trap is about. An empty string
     means the row names no command at all, which is a real answer — NixOS has
     no install verb for the LV2 plugins.
     """
@@ -72,10 +70,14 @@ def _rows(lead_in: str) -> list[tuple[str, str]]:
     block = README[start:]
     # Stop at the blank line that ends the bullet list.
     end = block.index("\n\n", block.index("\n- "))
+    block = block[:end]
+    bullets = list(_BULLET.finditer(block))
     rows = []
-    for m in _BULLET.finditer(block[:end]):
-        spans = re.findall(r"`([^`]+)`", m.group("rest"))
-        command = next((c for c in spans if c.startswith(_VERBS)), "")
+    for m, nxt in zip(bullets, bullets[1:] + [None]):
+        item = block[m.end():nxt.start() if nxt else len(block)]
+        lines = [line.strip() for f in _FENCE.finditer(item)
+                 for line in f.group("body").splitlines()]
+        command = next((c for c in lines if c.startswith(_VERBS)), "")
         rows.append((m.group("label"), command))
     return rows
 
