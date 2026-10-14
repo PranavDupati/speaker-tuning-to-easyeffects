@@ -9,10 +9,12 @@ response next to the DAX3 capture and identify mismatches.
 
 EasyEffects 8.x routes its plugin chain over internal `pw-filter`-style pipes
 that aren't standard linkable PipeWire ports. The ports we *can* see are
-`easyeffects_sink:monitor`, `ee_soe_output_level:output_*` and
-`easyeffects_source`. They carry pre-processing input, a level meter copy, or
-the mic chain, not the post-processing mix that hits the hw sink. Capturing
-from those ports failed even on the "Nothing" bypass preset.
+`easyeffects_sink:monitor`, `easyeffects_source` and
+`ee_soe_output_level:output_*`. The first carries the pre-processing input
+and the second the mic chain. The third is EE's last stage, which links to
+the hw sink, so the null-sink route below points it at `ee_capture` and
+records that sink's monitor. Recording from those ports directly failed even
+on the "Nothing" bypass preset.
 
 Two more traps:
 
