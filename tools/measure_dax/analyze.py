@@ -242,6 +242,25 @@ def _averaged_psd(x: np.ndarray, sr: int, win_s: float = 0.5
     return f, psd_acc
 
 
+def _capture_lag(capture: np.ndarray, stim: np.ndarray, n0: int, sr: int,
+                 chunk_s: float = 2.0) -> int:
+    """Samples by which *capture* trails *stim*, clamped to [0, n0].
+
+    The PSD ratio only cancels the stimulus's own random spectrum when both
+    windows hold the same noise. A loopback trails its stimulus by the
+    graph latency (~250 ms on the EE route), and unaligned windows leave
+    ~0.75 dB of bin-to-bin scatter in the ratio, the most visible where a
+    1/12-octave band spans one or two bins. A wrong estimate degrades to the
+    unaligned ratio, never worse.
+    """
+    seg = capture[n0:n0 + int(chunk_s * sr)]
+    ref = stim[:n0 + len(seg)]
+    if len(seg) == 0 or len(ref) < len(seg):
+        return 0
+    xc = fftconvolve(ref, seg[::-1], mode="valid")
+    return int(np.clip(n0 - int(np.argmax(np.abs(xc))), 0, n0))
+
+
 def analyze_pink(loopback: np.ndarray, sr: int,
                  stim_meta: dict, stimulus_path: Path | None
                  ) -> PinkResult:
@@ -266,8 +285,10 @@ def analyze_pink(loopback: np.ndarray, sr: int,
     if stimulus_path is not None and stimulus_path.is_file():
         sr_s, stim = _read_wav_float(stimulus_path)
         if sr_s == sr and stim.shape[0] >= n1:
-            _, spsd_L = _averaged_psd(stim[n0:n1, 0], sr)
-            _, spsd_R = _averaged_psd(stim[n0:n1, 1], sr)
+            lag = _capture_lag(loopback[:, 0], stim[:, 0], n0, sr)
+            stim = stim[n0 - lag:n1 - lag]
+            _, spsd_L = _averaged_psd(stim[:, 0], sr)
+            _, spsd_R = _averaged_psd(stim[:, 1], sr)
             ref_L_raw = 10.0 * np.log10(spsd_L + 1e-30)
             ref_R_raw = 10.0 * np.log10(spsd_R + 1e-30)
             eq_L = mag_db_L_raw - ref_L_raw
@@ -278,9 +299,9 @@ def analyze_pink(loopback: np.ndarray, sr: int,
                 _, psd_M = _averaged_psd((seg[:, 0] + seg[:, 1]) / 2.0, sr)
                 _, psd_S = _averaged_psd((seg[:, 0] - seg[:, 1]) / 2.0, sr)
                 _, spsd_M = _averaged_psd(
-                    (stim[n0:n1, 0] + stim[n0:n1, 1]) / 2.0, sr)
+                    (stim[:, 0] + stim[:, 1]) / 2.0, sr)
                 _, spsd_S = _averaged_psd(
-                    (stim[n0:n1, 0] - stim[n0:n1, 1]) / 2.0, sr)
+                    (stim[:, 0] - stim[:, 1]) / 2.0, sr)
                 sm_db = 10.0 * np.log10((psd_S + 1e-30) / (psd_M + 1e-30))
                 stim_sm = 10.0 * np.log10((spsd_S + 1e-30) / (spsd_M + 1e-30))
                 sm_delta_db = sm_db - stim_sm

@@ -123,3 +123,20 @@ def test_eq_raw_recovers_known_broadband_gain(tmp_path):
     # and the normalized curve must NOT carry the offset (peak at 0 dB)
     assert float(np.max(res.eq_gain_db_L[in_band])) == pytest.approx(
         0.0, abs=0.2)
+
+
+def test_eq_raw_cancels_capture_latency(tmp_path):
+    """A loopback trails its stimulus by the graph latency (~250 ms on the
+    EE route). The ratio must compare the same noise on both sides, or the
+    stimulus's random spectrum leaves ~0.75 dB of bin-to-bin scatter."""
+    stereo, meta = ms.make_pink(level_dbfs_rms=-18.0)
+    p = tmp_path / "stimulus_pink.wav"
+    wavfile.write(str(p), ms.SR, stereo.astype(np.float32))
+    lag = 12384                                    # 258 ms, as measured
+    capture = np.vstack([np.zeros((lag, 2), np.float32), stereo])
+    capture = (capture * 10.0 ** (-3.0 / 20.0)).astype(np.float32)
+    res = analyze.analyze_pink(capture, ms.SR, meta, p)
+    band = (res.f >= 40) & (res.f <= 150)
+    assert float(np.std(np.diff(res.eq_gain_db_raw_L[band]))) < 0.05
+    assert float(np.median(res.eq_gain_db_raw_L[band])) == pytest.approx(
+        -3.0, abs=0.05)
