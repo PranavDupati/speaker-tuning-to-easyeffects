@@ -160,6 +160,22 @@ def _band_response_db(band: dict, freqs: np.ndarray, fs: int = SR
     raise NotImplementedError(f"band type {btype!r} not modeled")
 
 
+_CHANNEL_KEYS = {"l": "left", "left": "left", "r": "right", "right": "right"}
+
+
+def _channel_key(channel: str) -> str:
+    """The preset's per-side key ("left"/"right") for L/R/left/right.
+
+    Strict, because the equalizer lookup is keyed on it: an unknown name
+    used to fall through to an empty band dict and model a flat EQ.
+    """
+    try:
+        return _CHANNEL_KEYS[channel.lower()]
+    except KeyError:
+        raise ValueError(f"channel must be L, R, left or right, "
+                         f"not {channel!r}") from None
+
+
 def _equalizer_response_db(eq: dict, freqs: np.ndarray, channel: str,
                            ) -> np.ndarray:
     """Sum response of one equalizer plugin instance over its bands."""
@@ -168,7 +184,7 @@ def _equalizer_response_db(eq: dict, freqs: np.ndarray, channel: str,
     in_gain = float(eq.get("input-gain", 0.0))
     out_gain = float(eq.get("output-gain", 0.0))
     n_bands = int(eq.get("num-bands", 0))
-    side = eq.get(channel, {})
+    side = eq[_channel_key(channel)]
     total = np.full_like(freqs, in_gain + out_gain, dtype=float)
     for k in range(n_bands):
         band = side.get(f"band{k}")
@@ -180,9 +196,11 @@ def _equalizer_response_db(eq: dict, freqs: np.ndarray, channel: str,
     return total
 
 
-def _fir_magnitude_db(irs_path: Path, freqs: np.ndarray) -> np.ndarray:
-    """Read an .irs (32-bit float wav) and return |FFT| magnitude (dB)
-    interpolated to `freqs`."""
+def _fir_magnitude_db(irs_path: Path, freqs: np.ndarray,
+                      channel: str = "left") -> np.ndarray:
+    """Read an .irs (32-bit float wav) and return *channel*'s |FFT|
+    magnitude (dB) interpolated to `freqs`. The converter writes a stereo
+    kernel whose columns differ wherever the XML's L/R curves do."""
     sr, x = wav_read(irs_path)
     if sr != SR:
         raise SystemExit(f"FIR sr={sr} != {SR}")
@@ -195,7 +213,7 @@ def _fir_magnitude_db(irs_path: Path, freqs: np.ndarray) -> np.ndarray:
     if x.ndim == 1:
         ch = x
     else:
-        ch = x[:, 0]
+        ch = x[:, 0 if _channel_key(channel) == "left" else 1]
     n = max(len(ch), 16384)
     spectrum = np.fft.rfft(ch, n=n)
     f_native = np.fft.rfftfreq(n, 1.0 / SR)
@@ -219,7 +237,8 @@ def build_analytical_model(preset: dict, irs_path: Path, channel: str,
 
     # FIR
     convolver = output.get("convolver#0") or {}
-    convolver_db = _fir_magnitude_db(irs_path, freqs)
+    channel = _channel_key(channel)
+    convolver_db = _fir_magnitude_db(irs_path, freqs, channel)
     convolver_db += float(convolver.get("input-gain", 0.0))
     convolver_db += float(convolver.get("output-gain", 0.0))
     if convolver.get("bypass"):
@@ -306,10 +325,8 @@ def main() -> int:
             channel = "right"
         else:
             channel = "left"
-    elif channel.upper() == "L":
-        channel = "left"
-    elif channel.upper() == "R":
-        channel = "right"
+    else:
+        channel = _channel_key(channel)
 
     preset = json.loads(args.preset.read_text())
     model = build_analytical_model(preset, args.irs, channel, f)
