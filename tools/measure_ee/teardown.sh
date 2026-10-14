@@ -44,13 +44,7 @@ if [[ -f "${SAVED_RC}" ]]; then
     echo "restored ${EE_RC} from backup"
 fi
 
-# 4. restart EE so it picks up the restored config --------------------------
+# 4. restart EE and wait for its output links ------------------------------
 
-nohup easyeffects --hide-window --service-mode \
-    >"${STATE_DIR}/ee.log" 2>&1 &
-echo "restarted easyeffects (service mode)"
-sleep 1.0
-
-echo
-echo "--- pw-link routing (should show EE -> hw) ---"
-pw-link --links | grep -E "ee_soe_output|alsa_output.*Speaker" || true
+source "$(dirname "${BASH_SOURCE[0]}")/ee_restart.sh"
+restart_ee "${STATE_DIR}/ee.log"

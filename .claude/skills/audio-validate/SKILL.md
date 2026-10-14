@@ -95,19 +95,14 @@ to sign off.
 
 ## 6. Restore audio
 
-1. Always run `bash tools/measure_ee/teardown.sh`, including on failure, so
-   the user's speakers come back. It restores the db rc from backup and
-   unloads the null sink.
-2. Verify that EE rebuilt its pipeline, not just that it runs:
-   `pw-link -l | grep ee_soe_output_level` must show links into the speaker
-   sink. If they're missing, restart EE once more after the graph has settled.
-
-A live process, a listed sink and a correct rc are **not restored** audio; the
-output links are. An EE restarted amid graph churn, as sinks and chains are
-torn down around it, can come up with `easyeffects_sink` present but no
-processing graph behind it. That sink is a silent black hole: it swallows
-every app routed to it, while short event sounds on the raw default sink still
-play. It once cost the user ~40 min of app audio after a teardown.
+Always run `bash tools/measure_ee/teardown.sh`, including on failure, so the
+user's speakers come back. It unloads the null sink and restores the rc, then
+waits for EE's output links and restarts EE once more if none appear. A
+running EE or a listed `easyeffects_sink` is not restored audio: with no links
+behind it, that sink silently swallows every app. If the script exits
+non-zero, tell the user before anything else. Judge EE's links only right
+after a start: by default EE unlinks its filters 10 s after the last app
+stops playing, so an idle graph with no EE links is still restored audio.
 
 ## Dead ends — don't retry (capture route)
 

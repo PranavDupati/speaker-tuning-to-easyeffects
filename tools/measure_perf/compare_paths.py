@@ -582,7 +582,10 @@ def main(argv=None):
     finally:
         pw_chain_down(*chain)
         if setup_null_done:
-            sh(["bash", str(TEARDOWN_NULL)], timeout=60)
+            rc, out = sh(["bash", str(TEARDOWN_NULL)], timeout=60)
+            if rc != 0:
+                print(f"\nWARNING: teardown.sh exited {rc}; apps routed to "
+                      f"EasyEffects may be silent.\n{out}", file=sys.stderr)
         pw_unforce()
         if prev_settings.get("clock.force-quantum", "0") not in ("0", "", None):
             pw_force(prev_settings["clock.force-quantum"], prev_settings.get("clock.force-rate", "0"))

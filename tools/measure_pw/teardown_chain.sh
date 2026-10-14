@@ -67,10 +67,8 @@ fi
 # Restart EasyEffects if setup_chain.sh stopped it.
 WAS_EE_FILE="/tmp/pw_chain.${NODE_NAME}.was_ee_running"
 if [[ -f "$WAS_EE_FILE" ]] && [[ "$(cat "$WAS_EE_FILE")" == "1" ]]; then
-    nohup easyeffects --hide-window --service-mode \
-        > "/tmp/ee_restart.${NODE_NAME}.log" 2>&1 &
-    disown
-    echo "restarted EasyEffects (--service-mode)"
+    source "$(dirname "${BASH_SOURCE[0]}")/../measure_ee/ee_restart.sh"
+    restart_ee "/tmp/ee_restart.${NODE_NAME}.log"
 fi
 rm -f "$WAS_EE_FILE"
 

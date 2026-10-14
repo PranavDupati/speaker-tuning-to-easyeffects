@@ -58,8 +58,11 @@ When auditing whether EE is applying the current preset:
 - `setup_null_sink.sh`: loads `module-null-sink ee_capture`, sets
   `outputDevice=ee_capture` + `useDefaultOutputDevice=false` in the db rc, and
   restarts EE.
-- `teardown.sh`: reverses the above. It restores the db rc from backup and
-  unloads the null sink.
+- `teardown.sh`: reverses the above. It restores the db rc from backup,
+  unloads the null sink and restarts EE. It then waits for EE's output links
+  and restarts EE once more if they never appear. A non-zero exit means apps
+  routed to EE are still silent. `ee_restart.sh` holds that logic, and
+  `tools/measure_pw/teardown_chain.sh` sources it too.
 - `smoke.py`: the bypass-preset smoke harness that gates every route attempt
   before the full battery.
 - `capture_battery.py`: runs the stimulus battery through EE and writes

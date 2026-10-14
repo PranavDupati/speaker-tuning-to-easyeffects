@@ -73,7 +73,9 @@ mono-symmetric stimuli cannot expose.
   WirePlumber's auto-link policy. See "WirePlumber traps" below.
 - [`teardown_chain.sh`](teardown_chain.sh): reverses the above. It kills the
   child `pipewire`, removes the conf drop-in and restores the default sink. It
-  restarts EE in service mode if setup stopped it.
+  restarts EE in service mode if setup stopped it, then waits for EE's output
+  links via `tools/measure_ee/ee_restart.sh`. A non-zero exit means apps
+  routed to EE are still silent.
 - [`capture_battery.py`](capture_battery.py): plays the stimulus battery
   into the chain and captures from `ee_capture.monitor` to
   `loopback_<stim>_<label>.{wav,json}`. The output is schema-identical to
