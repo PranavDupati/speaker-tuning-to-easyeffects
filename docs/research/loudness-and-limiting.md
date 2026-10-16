@@ -9,21 +9,32 @@
   `limiter#0`'s without a regulator. On the PipeWire backend, #23's X13
   reporter found it clean in most cases and loud ([#23](#r-volmax-boost-slot)).
   On #44's deep-threshold tuning, `output-gain` was closest to DAX on loud bass
-  and confirmed by ear, on one device ([#44](#r-deep-threshold-bass-loss)).
+  and confirmed by ear, on one device ([#44](#r-deep-threshold-bass-loss)). On
+  #137's, our chain with it sat closer to DAX than the default in the low mids
+  on −14 dBFS pink ([#137](#r-low-mid-regulator-vs-dax)).
 - **The regulator** under-engages vs DAX on the dev device's shallow thresholds,
   and over-engages on #44's deep ones relative to DAX at the one level both were
-  measured ([dynamics](#r-fixed-dynamics-constants)).
+  measured ([dynamics](#r-fixed-dynamics-constants)). On #137's deep low-mid
+  thresholds the default cuts 277–555 Hz by 3–4 dB where DAX applies no
+  level-dependent cut up to −14 dBFS pink ([#137](#r-low-mid-regulator-vs-dax)).
 - **Peak normalisation** is the ≈−8…−12 dB absolute EE−DAX offset on the dev
   device at nominal level (pink, −17.8 dBFS). `--enable level-restore`,
-  opt-in, gives it back; on the one device heard, loud speech produced audible
-  artifacts ([level restore](#r-level-restore)).
+  opt-in, gives it back; on the first device heard, loud speech produced audible
+  artifacts ([level restore](#r-level-restore)). On #137, with autogain and
+  `output-gain` also on, a listener heard crackle on loud bass
+  ([#137](#r-low-mid-regulator-vs-dax)).
 
 Open:
 
-- The volmax slot default needs a second device. The dev device can serve,
-  with a DAX and EE burst capture whose tones sit inside its regulator's active
-  zone. Whether an XML-derivable predictor could pick the slot per tuning stays
-  a hypothesis ([bass loss](#r-deep-threshold-bass-loss)).
+- The volmax slot default. #137 is a second DAX-captured device where our
+  chain with `output-gain` sits closer to DAX than the default, measured on
+  pink rather than a burst and at chain level, with DAX's leveler ahead of its
+  regulator ([#137](#r-low-mid-regulator-vs-dax)). Whether that clears the
+  bar for a default flip is undecided. The dev device can serve too, with a DAX
+  and EE burst capture whose tones sit inside its regulator's active zone.
+  Whether an XML-derivable predictor could
+  pick the slot per tuning stays a hypothesis
+  ([bass loss](#r-deep-threshold-bass-loss)).
 - Why the regulator's configured 100:1 realizes as ≈1.8 on the dev device needs
   a regulator-only EE capture. A DAX capture of `stimulus_stepped_loud` would
   validate or kill the coupled-bands mapping
@@ -615,6 +626,117 @@ Open:
 - Whether `--volmax-slot output-gain` clears the surges on this device.
 - How the deep share compares across the full corpus, which was unmounted at the
   time. Re-derive with `tools/corpus_audit.py`.
+
+<a id="r-low-mid-regulator-vs-dax"></a>
+
+## Deep low-mid regulator thresholds against a DAX pink ladder (issue #137)
+
+On issue #137's tuning, Windows Dolby leaves 277–555 Hz untouched up to −14
+dBFS pink, where our default regulator cuts those bands by 3–4 dB relative to
+it. Conditions: ASUS TUF Gaming A16 FA607PV, ALC256 `SUBSYS_10431C93`,
+`dynamic`/balanced. Windows side: the reporter's loopback captures, 2026-10-16,
+Dolby Access defaults, endpoint at 50 %
+([comment](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137#issuecomment-6214408121)):
+`pink` with Dolby off, then `pink_quiet`, `pink`, `pink14` and `speech` on
+Dynamic. Our side: the same tuning through the EE → null-sink route on the dev
+machine, 2026-10-15, with byte-identical stimulus files. The exception is
+`speech`, which the reporter's generator built differently, so it is not
+analysed. Dolby off reads 0.0 dB against the stimulus in every band, so the
+endpoint volume does not enter these captures.
+
+The regulator is the #110 package class
+([ASUS](#r-asus-deep-regulator-thresholds)). Its four zones over 182–744 Hz sit
+at −16.7 / −30.6 / −29.8 / −18.4 dBFS, at 100:1, with volmax +6.0 dB. The
+variants are T1, the default; T2, `--volmax-slot output-gain`; and T3,
+`--disable regulator`. Each curve is re-referenced to its own 141 Hz–9 kHz
+mean, because DAX's leveler sets its own loudness. Figures are 1/3-octave band
+power at the Dolby band centres, channel L:
+
+| band | DAX `pink14` − `pink_quiet` | T1 − DAX | T2 − DAX | T3 − DAX |
+| --- | --- | --- | --- | --- |
+| 234 Hz | +1.8 dB | −1.9 | −1.4 | −1.3 |
+| 328 Hz | +0.3 | −4.2 | −1.6 | −0.9 |
+| 469 Hz | +0.4 | −3.1 | −1.0 | −0.7 |
+| 656 Hz | −0.0 | −0.7 | −0.4 | −0.4 |
+
+At `pink14`, as 4th-order Butterworth band RMS, zero-phase, over 6–11 s, the
+277–392 / 392–555 Hz zones measure −30.0 / −29.7 dBFS in the stimulus. T3's
+output, which carries the +6 dB, puts them at −26.6 / −28.6. That approximates
+T1's regulator input, 4.0 and 1.2 dB above the decoded thresholds. T1's output
+holds them at −30.4 / −31.6, and DAX's output reads −28.3 / −30.5. DAX shows no
+level-dependent change in those bands between −42 and −14 dBFS. Three readings
+fit: its regulator acts on a different level than our reading assumes, the
+thresholds decode deeper than DAX applies them, or DAX's leveler, which runs
+ahead of its regulator, keeps the zones below threshold. On our route the
+regulator stops engaging once autogain sits in front of it (the reporter's flag
+stack, below), which makes the third plausible. These captures cannot tell them
+apart. Of the shipped variants, `output-gain` lands within 1.6 dB of DAX in the
+zone and `--disable regulator` within 0.9 dB. That makes #137 the second
+DAX-captured device, after [#44](#r-deep-threshold-bass-loss), where our chain
+with `output-gain` sits closer to DAX than the default. The comparison is
+chain-level, since DAX has its leveler in front and our default on HDA does not.
+No default changed.
+
+**The static curve and the dialog bell.** At `pink_quiet`, where nothing
+level-dependent engages, our shape matches DAX within ±1.5 dB from 141 Hz to
+13.9 kHz. The low-mid-versus-treble tilt (mean 141–656 Hz minus mean
+2.25–9 kHz) is −2.9 dB on both. 47 Hz is the exception, unexplained: DAX sits
+7.1 dB below us there at `pink_quiet`, and 1.7–2.8 dB above T3 at `pink` and
+`pink14`. The excess left at 1.7–5.8 kHz has the shape of our dialog bell:
++1.88 dB at 2.5 kHz, Q 0.7, from `dialog-enhancer-amount` 5.
+
+| | 1688 Hz | 2250 | 3000 | 3750 | 4688 | 5813 |
+| --- | --- | --- | --- | --- | --- | --- |
+| bell, computed | +1.4 dB | +1.8 | +1.8 | +1.4 | +1.0 | +0.6 |
+| T3 − DAX, `pink` | +0.8 | +1.6 | +1.7 | +1.2 | +0.7 | +0.2 |
+
+A second EE run added `--disable dialog` to each variant; its repeat of T2
+matched the first to 0.00 dB in every band. Without the bell, T3 matches DAX
+within ±1.4 dB from 47 Hz to 13.9 kHz at `pink`, with a −0.7 dB tilt residual.
+At `pink14` it is within ±1.1 dB from 234 Hz up, and −2.2 / −1.6 dB at 47 /
+141 Hz. So DAX applied no static presence boost to pink on this device either
+([speech gating](adaptive-processing.md#r-dialog-enhancer-speech-gating)).
+
+As an RMS over the 19 bands from 47 Hz to 13.9 kHz, the gap to DAX's shape is:
+
+| input | no processing | T1 | T2 | T2 `--disable dialog` |
+| --- | --- | --- | --- | --- |
+| `pink_quiet` | 3.39 dB | 1.78 | 1.78 | 1.94 |
+| `pink` | 2.09 | 1.21 | 1.08 | 0.60 |
+| `pink14` | 2.10 | 1.79 | 1.30 | 0.82 |
+
+"No processing" is the Dolby-off capture, an exact bypass. At `pink_quiet` the
+47 Hz band dominates: +7.1 dB for T1 and +7.7 without the bell.
+
+![Issue #137: our presets' shape against Windows Dolby at normal and loud
+input, with the gap each closes against no processing. The default dips the
+low mids on loud input; T2 without the dialog bell sits within about 1 dB of
+Windows](../images/137-fr-vs-windows.png)
+
+**Level.** DAX outputs −14.2 dBFS RMS at `pink` against −15.9 for T2 and T3, and
+−13.3 at `pink14` against −12.0 for T2 and −11.9 for T3. At `pink_quiet` its
+leveler puts it 16 dB above our chain.
+
+**The reporter's flag stack.** Before the capture, the reporter preferred
+`--enable autogain --enable level-restore --volmax-slot output-gain`. On the EE
+route that stack has T3's shape on stationary pink. Autogain pins the output at
+−12.8 dBFS RMS from −42 to −14 dBFS input, and the low-mid bands show no
+level-dependent take.
+Matched for loudness by ear, the reporter heard no low-end difference between it
+and T3. On the −5 dBFS bass burst it raises the 1–16 kHz products to
+−53.9 dBFS, against −104.5 for T3 and −95.8 for T1, because +10.5 dB of static
+gain lands after the regulator on `limiter#0`. The reporter heard crackle on
+loud bass with that stack only. T2 and EasyEffects bypassed stayed clean, on the
+same song at the same volume.
+
+Open:
+
+- Whether DAX's regulator engages on this tuning at all. Pink tops out at −14
+  dBFS; a `stimulus_stepped_loud` capture pair would show it.
+- Whether DAX applies its dialog enhancer to real speech here. Analysing the
+  `speech` capture needs the reporter's own `stimulus_speech.wav`.
+- What sets DAX's level-dependent 47 Hz balance.
+- T2 with `--disable dialog`, the closest shipped combination, is unheard.
 
 <a id="r-convolver-headroom-restore"></a>
 
@@ -1540,6 +1662,12 @@ costs audible artifacts.** Default output is unchanged and pinned by the
 second-device requirement is met, and the listening gate is answered
 negatively. So the flag stays opt-in, and a default flip is off the table until
 a smaller restore or a mitigation is measured.
+
+A second listener heard the flag's cost on #137: crackle on loud bass with
+`--enable autogain --enable level-restore --volmax-slot output-gain`, absent
+from `output-gain` alone. On the EE route the level-restore gain carries the
+out-of-band products: `output-gain` with level-restore raises them to
+−58.2 dBFS without autogain ([#137](#r-low-mid-regulator-vs-dax)).
 
 ## Elsewhere
 

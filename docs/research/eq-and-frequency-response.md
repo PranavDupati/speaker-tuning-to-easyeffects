@@ -17,16 +17,25 @@
   7 14ARE05, DAX's pink on/off delta tracked our curve to ~0.7 dB mean at the
   loud operating point, confirming the 1/16-dB units. One capture pair confirms
   the `gain_l`/`gain_r` assignment, at the one band where they differ (1688 Hz)
-  ([units](#r-simplified-schema-ao-units)).
+  ([units](#r-simplified-schema-ao-units)). On #137's full-schema ASUS tuning,
+  our static shape at −42 dBFS pink matched DAX within ±1.5 dB from 141 Hz to
+  13.9 kHz ([#137](loudness-and-limiting.md#r-low-mid-regulator-vs-dax)).
 
 Open:
 
+- How far our static IEQ is from DAX's off pink. Without MI steering, DAX's
+  IEQ adapts to content on the dev device, about −2.7 dB in the low mids and
+  +2 dB in the presence band on speech against pink, and on pink applies a
+  tilt several times our `amount/100` curve
+  ([IEQ on content](#r-ieq-adapts-to-content)).
 - Whether `/100` is a true percentage or a ≈0.10 constant for speakers: every
   speaker DAX capture uses `amount=10`, so it needs a capture from a device with
   `ieq-amount≠10` ([scaling](#r-ieq-amount-scaling)).
-- DAX's own Detailed−Warm voicing delta is unmeasured. A dev-device pink or
-  multitone capture on Detailed, then Warm, shows whether the weight applies to
-  the whole target ([scaling](#r-ieq-amount-scaling)).
+- DAX's Detailed−Warm voicing delta under MI steering. Without it, on
+  `movie`, the two span 4.6 dB on pink against about 1 dB in our kernels
+  ([IEQ on content](#r-ieq-adapts-to-content)). Dolby Access shows no voicing
+  control on `dynamic`, so its delta cannot be captured there
+  ([scaling](#r-ieq-amount-scaling)).
 - At 47 Hz, whether DAX applies a shallower HP or its leveler boost compensates
   a similar one: the variant sweep cannot tell
   ([hypotheses](#r-xml-interpretation-hypotheses)).
@@ -858,6 +867,211 @@ with the voicing set to Detailed and then Warm, settles it:
 - A several-dB delta would mean DAX applies the voicing *shape* at more than the
   steady-state weight (e.g. `ieq-amount` scaling only the MI-steered part), and
   the converter's variants are under-differentiated.
+
+The dev device's `movie` profile later gave a several-dB answer, but without
+the MI steering this section rests on
+([IEQ on content](#r-ieq-adapts-to-content)).
+
+<a id="r-ieq-adapts-to-content"></a>
+
+## How DAX's IEQ behaves without Media Intelligence steering
+
+On the dev device, with MI steering off, DAX's IEQ adapts to the content. On
+speech it cuts the low mids about 2.7 dB and lifts the presence band about
+2.0 dB relative to pink, whichever voicing is set. Its static effect on pink is
+a tilt several times larger than our `amount/100` model. Conditions: dev X1
+Yoga Gen 7 (`17AA22E6`), Windows Dolby Access, 2026-10-16, endpoint at 20 %.
+`movie` (IEQ off by default, `mi-ieq-steering-enable=0`) was captured with
+the IEQ set to Off, Balanced, Detailed and Warm in Dolby Access. `music` (IEQ
+Balanced by default, no MI steering) was captured with it on and off. The
+stimuli are the human-speech probes of the
+[DE capture](adaptive-processing.md#r-dialog-enhancer-speech-gating), plus pink,
+all `ieq-amount` 10.
+
+On pink, IEQ-on minus IEQ-off, each re-referenced to its own 234 Hz–7.1 kHz
+mean, against our model (`curve/16 * ieq-amount/100`, same reference):
+
+| voicing | 141 Hz | 469 Hz | 1031 Hz | 2250 Hz | 4688 Hz | 9000 Hz |
+| --- | --- | --- | --- | --- | --- | --- |
+| Balanced, measured | +3.5 dB | +1.9 | +0.9 | −0.7 | −2.2 | −3.1 |
+| Balanced, model | −0.1 | +0.1 | 0.0 | +0.2 | −0.2 | −0.7 |
+| Detailed, measured | +2.0 | +0.7 | +0.2 | −0.8 | −0.4 | −1.7 |
+| Warm, measured | +4.8 | +2.9 | −0.1 | −1.5 | −2.2 | −1.7 |
+
+The Detailed−Warm difference spans 4.6 dB peak to peak, against about 1 dB in
+our kernels. On speech, the IEQ-on minus IEQ-off difference departs from its
+pink value by a shape common to every setting. The table gives (on − off on
+speech) minus (on − off on pink), shape only:
+
+| setting | 328–656 Hz, clean speech | 2.25–3.75 kHz, clean speech | 2.25–3.75 kHz, over the bed |
+| --- | --- | --- | --- |
+| `movie` Balanced | −2.7 dB | +2.0 | +2.1 |
+| `movie` Detailed | −2.5 | +2.0 | +2.0 |
+| `movie` Warm | −2.8 | +2.2 | +2.2 |
+| `music` Balanced vs Off | −2.9 | +2.2 | +2.2 |
+
+With the IEQ off, `music`'s speech-only change against `game` disappears on
+clean speech: −0.03 dB in the presence band, against +2.1 with it on. Over the
+bed −1.0 dB remains, which `music`'s virtualizer and surround-decoder fields
+may account for, since the bed is the one stereo-asymmetric stimulus.
+
+The timing depends on what came before. On the 13 s pink battery, which starts
+from silence, the IEQ's difference is at full value from the first 2 s window.
+After the switch from 20 s of speech to pink in `speech_then_pink`, it has not
+settled 20 s later: the last pink windows sit about halfway from the speech
+value to the battery value (0.51 and 0.56 for the 328–656 Hz and 2.25–3.75 kHz
+band means; `movie` Balanced, 328 Hz: +1.6 dB, against +0.7 on speech and +2.7
+on the battery).
+
+![Left: IEQ on minus off on pink, per voicing, against our static curves.
+Right: the extra shift on speech against pink, the same for every setting
+within about 1 dB](../images/ieq-pink-vs-model.png)
+
+The XML names these curves `target`. A shape that follows the content, the same
+on every voicing, with a slow and history-dependent ride, reads as an EQ that
+steers the content's spectrum toward the target, not a fixed filter. The
+regulator or leveler reacting to the IEQ's change is unlikely to explain the
+speech shift: in the 328–656 Hz and 2.25–3.75 kHz band means it agrees within
+0.3 dB across voicings whose own boost differs by 2–5 dB. That is a hypothesis
+these captures support and do not prove. It explains why the `amount/100` weight
+matched DAX on pink: `dynamic` steers its IEQ through MI
+(`mi-ieq-steering-enable=1`), which on pink leaves little of it, so a small
+static weight fits there. A profile with the IEQ on and no MI steering, such as
+`music`, gets far more IEQ than our static curve applies.
+
+
+### A fitted model of the unsteered IEQ, to be validated
+
+The hypothesis is that, without MI steering, the IEQ pulls the content's
+spectrum halfway toward its target, measured through a fixed weighting. It is
+fitted on one device at one `ieq-amount` and is unvalidated:
+
+> correction(f) ≈ 0.5 × [T(f) − S(f) − R(f)] + c
+
+T is the voicing's XML target, S the input's band spectrum, R a fixed per-band
+weighting, and c a broadband constant. The model says nothing about timing.
+Two estimates of the 0.5, from different contrasts, agree. They share the pink
+captures, and both use differences, so R and c cancel:
+
+| estimate | fitted strength | shape correlation | residual |
+| --- | --- | --- | --- |
+| voicing pairs on pink: ΔG = a·ΔT, 3 pairs | 0.49–0.58 | 0.95–0.97 | 0.28–0.43 dB |
+| speech minus pink: ΔG = −a·ΔS, 3 voicings × 2 stimuli | 0.43–0.53 | 0.93–0.96 | 0.61–0.72 dB |
+
+R comes from the pink captures, with S taken as 1/3-octave band power. It runs
+from −8 dB at 141 Hz up to +5 dB at 3 kHz and back to −1 dB at 9 kHz, and the
+three voicings agree on it within 1.9 dB. Its shape resembles the ear's
+sensitivity curve, which would fit an IEQ that measures the input
+perceptually; that reading is a further guess. R is fixed by the pink captures
+and cancels in every same-voicing difference, so the speech captures test only
+the 0.5 and the S term. R stays unvalidated until a second device or amount.
+
+With MI steering, `dynamic` passes little of this. Projected onto the unsteered
+correction, `dynamic` minus `movie` (same DE amount, IEQ off; `dynamic` also
+turns on four other `mi-*-steering` switches) gives 0.09 on pink (correlation
+0.83) and about 0 on speech. In 2 s windows the weight falls from about 0.1
+toward 0 as the speech goes on. That small pink weight is why the `amount/100`
+curve matches on pink. It is close to 0.10, but it scales the correction rather
+than the target, so the agreement may be coincidence.
+
+**Alternative forms.** A model comparison on the same captures, with genuinely
+held-out tests (one voicing left out, or the content contrast predicted from a
+fit on the voicing contrast), ranks:
+
+| form | free parameters | held-out RMS error |
+| --- | --- | --- |
+| linear matcher, mismatch smoothed over about 0.35 octave | 18 | 0.27 / 0.59 dB (voicing / content test) |
+| linear matcher, free R | 17 | 0.23–0.60 dB |
+| linear matcher, R = the A-weighting curve | 2 | 0.65 dB |
+| saturating or cubic strength | 18 | no gain over linear |
+
+R correlates 0.92 with A-weighting at a scale of 1.04, but that fit wants a
+strength of 0.33 rather than 0.5 and leaves a structured ±2 dB residual, so the
+A-weighting reading stays suggestive. For timing, a per-band level tracker that
+rises fast (under a second) and falls slowly (about 10–20 s) fits the pink half
+after `speech_then_pink`'s switch within about 0.1–0.45 dB, where symmetric or
+cumulative trackers miss by 0.7–1.0 dB. The speech half and 141 Hz fit no form
+tried. Part of the slow presence-band return may come from the shape-only
+re-referencing, since the low mids fall at the switch and move the mean.
+
+**Predictions for a second device, recorded 2026-10-16 before its data.** The
+targets are global and the stimuli identical, so if the 0.5 and R are engine
+constants, #137's device should show:
+
+1. `movie` IEQ Balanced minus off on pink matching the dev device's curve
+   above (+3.5 dB at 141 Hz to −3.1 dB at 9 kHz, shape only) within about
+   0.6 dB RMS. The A-weighting form predicts the same curve to about 0.65 dB.
+2. A speech-versus-pink shift of about −2.7 dB in 328–656 Hz and +2.0 dB in
+   2.25–3.75 kHz, as here.
+
+A curve that differs by several dB would make R, or the strength, a property
+of the device rather than of Dolby's engine.
+
+**Reach.** The IEQ targets are global: 1417 of the 1418 `<constant>` blocks
+across the 1544 content-unique corpus XMLs carry the same three. If the 0.5 and
+R are engine constants, the model's correction for a given content is the same
+on every device at a given amount. Re-derived 2026-10-16 with an ad-hoc query
+over those 1544 XMLs; 127 have no `dynamic` profile:
+
+| profile | IEQ on, MI-steered | IEQ on, unsteered | IEQ off |
+| --- | --- | --- | --- |
+| `dynamic` | 1063 | 5 | 349 |
+| `music` | 0 | 740 | 676 |
+| `movie` | 0 | 35 | 1381 |
+
+Of the 47 tested-table devices found in the corpus, 41 have a file running the
+MI-steered IEQ on `dynamic`, and 30 one running it unsteered on `music`. Five
+devices have files in more than one category. Their unsteered `music` amounts
+are 10, except one each at 4, 7 and 13.
+
+**Estimated audibility, unlistened.** On `dynamic`, the profile a default run
+builds, our static curve and the model's steered IEQ differ by about 1 dB peak
+to peak on pink and by our ±0.7 dB curve on speech. That is consistent with the
+whole-chain pink match within ±1.5 dB on #137's device. On `music`,
+our curve and the unsteered IEQ differ by about 6 dB peak to peak: +3.6 dB at
+141 Hz to −2.3 dB at 9 kHz on pink, and up to +5.2 dB at 141 Hz on speech. A
+broad bass-to-treble difference that size is likely audible, but nobody has
+listened, so it stays an estimate.
+
+**Implementation options.**
+
+- A static correction, `0.5 × (T − S_ref − R)` for a chosen reference
+  spectrum, folds into the existing FIR on both EasyEffects and PipeWire. It
+  adds no latency and little code. It cannot follow content, and S_ref is an
+  invented choice: pink reproduces the pink captures, while speech or music
+  would give a different curve. It would ship as an opt-in for the unsteered
+  profiles until a second device confirms the 0.5 and R.
+- An adaptive approximation. A 2:1 ratio toward a per-band threshold is the
+  same arithmetic as halfway toward a target, so two EasyEffects multiband
+  compressor instances could approximate it: one downward above the
+  threshold, one upward below. `ee_to_pipewire` already translates that plugin
+  for PipeWire. The limits are 8 bands against the IEQ's 20, attack at most
+  2 s and release at most 5 s (EasyEffects' kcfg) against a ride that has not
+  settled 20 s after a switch, and
+  absolute thresholds, where the IEQ appears to follow spectral shape. A
+  loudness normaliser in front would make the levels relative. Whether DAX's
+  IEQ depends on level is untested. The effort is medium to high and the
+  fidelity unknown.
+- A true spectral matcher has no stock plugin. EasyEffects plugins cannot
+  share analysis, and PipeWire's builtin nodes cannot turn audio into a
+  control value, so it would take a custom plugin.
+
+Open:
+
+- A second device with the IEQ on and off, without MI steering: does it
+  reproduce the 0.5 strength and R?
+- How the strength depends on `ieq-amount`. Three tested devices' `music`
+  profiles run amounts 4, 7 and 13.
+- The IEQ's timing: which pink state is the steady one, and why the pink
+  battery, starting from silence, shows none of the drift that follows
+  speech.
+- Whether the IEQ depends on input level: `movie` with the IEQ on at `pink`
+  against `pink14` and `pink_quiet`.
+- `dynamic` on music content, where MI's steering is unmeasured.
+- Listening: the `music`-profile gap estimated above. #73, #115 and #70, and
+  PR #81's author, run tunings whose `music` profile has the unsteered IEQ.
+  Four reporters, on #73, #88, #115 and #118, heard our three voicings as near
+  identical on `dynamic`, which our ≤1 dB kernels predict regardless of DAX.
 
 <a id="r-simplified-schema-ao-units"></a>
 

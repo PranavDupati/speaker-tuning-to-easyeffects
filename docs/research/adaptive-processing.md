@@ -26,7 +26,13 @@ Open:
 - The dialog enhancer's 6 dB ceiling is unconfirmed, and our bell appears to
   over-apply vs DAX. Settling it needs a speech source that demonstrably
   engages DAX's DE, ideally a same-profile DE-on-vs-off capture
-  ([dialog](#r-dialog-enhancer-gain-ceiling)).
+  ([dialog](#r-dialog-enhancer-gain-ceiling)). On pink, DAX applied no static
+  bell on a second device, #137
+  ([#137](loudness-and-limiting.md#r-low-mid-regulator-vs-dax)). On human
+  speech the dev device's DE engaged on speech only: about +0.5 dB on clean
+  speech and +2 dB over a background, with our bell's shape. Its gain law
+  across `amount` is unmeasured
+  ([speech gating](#r-dialog-enhancer-speech-gating)).
 - The leveler window formula and the conservative path's −6 dB target offset
   are invented. Falsifying them needs a capture of DAX's MI-steered leveler,
   hard because it is non-LTI ([window](#r-leveler-autogain-window),
@@ -401,6 +407,120 @@ rests on DE alone. The round-3 `--disable autogain` A/B tests the leveler
 ([SoundWire bass-enhancer constants](virtual-bass.md#r-soundwire-bass-enhancer-constants)).
 Restore via git history (`2f4d0b8`) if a SoundWire speech capture ever shows a
 stronger DE.
+
+A human-speech capture on the dev device later showed DAX's DE engaging on
+speech only, with our bell's shape and less gain
+([speech gating](#r-dialog-enhancer-speech-gating)), and #137's device added a
+second pink null ([#137](loudness-and-limiting.md#r-low-mid-regulator-vs-dax)).
+The bell's reach is wide. Re-derived 2026-10-16 with `parse_xml` over the local
+corpus, a default run emits it on 764 of 927 parseable devices (82%), 736 of
+them at amount 5, which is +1.88 dB.
+
+<a id="r-dialog-enhancer-speech-gating"></a>
+
+## What DAX's dialog enhancer does on real speech
+
+On the dev device DAX's dialog enhancer engages on speech only. It is a bell
+near our own shape, about +0.5 dB on clean speech and +2 dB when speech competes
+with a background, and 0.0 dB on pink. Conditions: dev X1 Yoga Gen 7
+(`17AA22E6`), Windows Dolby Access, 2026-10-16. The `game` profile has DE off,
+and `movie` has it on at amount 5. Stimuli from
+`make_stimulus.py --speech-source`, 40 s each, built from a public-domain
+LibriVox reading
+([*The Gift of the Magi*](https://archive.org/details/giftofmagi), read by
+Betsie Bush): `speech_human`, `speech_over_bed` (centred speech over an
+independent pink bed per channel, nominally 10 dB below the target speech
+level; the peak guard left it 8.9 dB below the speech's active level) and
+`speech_then_pink` (20 s of each). There were runs at 20 % and 50 % endpoint
+volume plus a repeat. They agree within 0.1 dB in every band, and the endpoint
+volume does not enter the loopback. Dolby's output touched full scale on 1–51
+samples per capture, too few to move band power.
+
+Movie minus game, per band, on the same stimulus; the bell is a peaking fit plus
+a broadband offset above 469 Hz:
+
+| stimulus | 2250 Hz | 2.25–3.75 kHz, shape only | fitted bell |
+| --- | --- | --- | --- |
+| `pink` | 0.0 dB | 0.0 | none |
+| `speech_human` | +0.5 | +0.26 | +0.53 dB, 2378 Hz, Q 0.84, offset −0.06; residual 0.08 dB |
+| `speech_over_bed`, L | +1.8 | +0.92 | +1.98 dB, 2963 Hz, Q 0.49, offset −0.39; residual 0.30 dB |
+| `speech_over_bed`, mid / side | | +0.93 / +0.32 | |
+| `speech_then_pink`, pink half | 0.0 | +0.01 | none |
+
+"Shape only" removes each difference's mean over 234 Hz–7.1 kHz, so a broadband
+leveler offset drops out. In 2 s windows the presence difference is there from
+the first window of speech. It falls back to 0.0 within about 2 s of the switch
+to pink, and does not drift over the 40 s.
+
+So DAX gates its DE on content, as the `mi-dialog-enhancer-steering-enable`
+field suggests, and sizes it by what competes with the speech. A static bell
+cannot do either. Our bell's centre and Q (2500 Hz, 0.70) match the clean-speech
+fit within the measurement. Its +1.88 dB at amount 5 matches the
+speech-over-background case and over-applies 3.5× on clean speech. On pink,
+where DAX applied nothing on two devices, it is pure error; music is unmeasured.
+Movie and game also differ in `surround-boost`, and game shows a "Performance
+mode" switch in Dolby Access. Both read 0.0 dB on centred pink, so the side
+channel's +0.32 dB may come from either rather than from DE. `dynamic` against
+`game` is no DE contrast, since `dynamic` also turns on the IEQ.
+
+The XML gives DE nothing but `enable`, `amount`, `ducking` and the steering
+switch. A tag scan of the 1544 content-unique corpus XMLs found no other
+dialog- or speech-named field outside microphone APO files. Nothing describes
+the bell's frequency or Q, so the shape is an engine constant and only a
+capture can supply it.
+
+The bell has shipped bypassed since 2026-10-16, with `--enable dialog` as the
+opt-in. On the dev device the two were then compared by ear on the `dynamic`
+profile, by a listener who knew which preset was playing. With the bell off it
+sounded good: slightly less voice presence, and piano less over-emphasised.
+The flip rests on the pink null, seen on two devices (this one and #137's);
+the speech gating is measured on this one only.
+
+**Amount 10.** A second Windows session the same day captured Custom 1 and
+Custom 2, the `personalize` profiles. On this device they differ from `movie`
+only in amount 10 against 5 and in `surround-boost`. Their pink matches
+`movie` within 0.1 dB in every band, and Custom 2 repeats Custom 1 to 0.0 dB.
+Against `game`, on the same speech window, the fitted bells are:
+
+| stimulus | amount 5 (`movie`) | amount 10 (Custom 1 and 2) |
+| --- | --- | --- |
+| `speech_human` | +0.53 dB, 2378 Hz, Q 0.84, offset −0.06 | +3.05 dB, 3851 Hz, Q 0.40, offset −1.16 |
+| `speech_over_bed`, L | +1.98 dB, 2963 Hz, Q 0.49, offset −0.39 | +1.93 dB, 3731 Hz, Q 0.35, offset −0.75 |
+
+The offset is the fit's broadband term, so a bell's gain is not its raw peak:
+at amount 10 on clean speech the raw peak against DE off is about +2.1 dB, at
+3.75 kHz. Doubling the amount multiplies the clean-speech boost about 5× in the
+presence band (+0.26 to +1.25 dB), raises the bell's centre and widens it. Over
+the bed it adds nothing. At 2250 Hz it gives +0.9 dB against amount 5's +1.8.
+The boost stays gated: on `speech_then_pink` it falls to about 0.2 dB within
+2–4 s of the switch to pink. So the gain law is neither linear nor
+fixed-shape, and our `amount/16 * 6` dB bell at 2.5 kHz matches neither amount
+on clean speech.
+
+![The dialog boost against DE off, at amount 5 and 10, on clean speech and
+over a pink bed, with our fixed bell: Windows' boost moves with the amount and
+the content](../images/de-bell-vs-ours.png)
+
+![Presence band and low mids over time on speech then pink: DE at both amounts
+switches within about 2 s of the change, while the IEQ in `music` moves slowly
+and has not settled 20 s after it](../images/de-ieq-time-course.png)
+
+**A control without DE.** `music`, with DE disabled, changed on clean speech by
+more than DE does: +2.1 dB in 2.25–3.75 kHz and −3.2 dB at 469 Hz against pink,
+building over about 10 s of speech. With its IEQ turned off the change vanished,
+so it is the IEQ
+([IEQ on content](eq-and-frequency-response.md#r-ieq-adapts-to-content)).
+`dynamic`'s own speech difference (+0.5 dB clean, +1.2 over the bed, presence
+band) mixes DE with that IEQ adaptation. `voice` differs from `game` in too many
+fields, including the leveler, to read.
+
+Open:
+
+- The gain law across `amount`. Two points on one device rule out linear and
+  fixed-shape, and do not yet give a law.
+- A second device on speech. #137's device is pink-null only
+  ([#137](loudness-and-limiting.md#r-low-mid-regulator-vs-dax)).
+- `dialog-enhancer-ducking`, which is 0 here.
 
 <a id="r-surround-boost-stereo-base"></a>
 
