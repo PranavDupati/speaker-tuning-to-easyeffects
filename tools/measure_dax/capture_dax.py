@@ -62,7 +62,7 @@ PKEY_FMTID_SPATIAL_MODE_NAMES = "{a45429a4-aa63-4480-b7f8-3f2552daee93}"
 PKEY_ACTIVE_SPATIAL_MODE_CLSID = "{9637b4b9-11ee-4c35-b43c-7b2452c993cc},1"
 
 
-VALID_LABELS = ("off", "dynamic", "movie", "music", "game", "voice")
+VALID_LABELS = ("off", "dynamic", "movie", "music", "game", "voice", "personalize")
 EXPECTED_SR = 48000
 EXPECTED_CHANNELS = 2
 LOOPBACK_PADDING_SEC = 1.5  # extra recording past stimulus end (covers play startup + capture-side delay)
@@ -125,7 +125,9 @@ def resolve_endpoint(device_substring: str | None):
         _abort(f"No matching WASAPI output device (substring={device_substring!r}).")
 
     if device_substring is None:
-        default_out_idx = sd.default.device[1]
+        # sd.default.device is the default *host API's* (MME) device index,
+        # which never matches a WASAPI candidate — use WASAPI's own default.
+        default_out_idx = hostapis[wasapi_idx]["default_output_device"]
         default_match = next(
             ((i, d) for (i, d) in candidates if i == default_out_idx), None
         )
@@ -553,12 +555,18 @@ def _play_and_record_pyaudio(sd_info, stim, sr: int, total_seconds: float):
                 f"{target_name!r}.\n  Available loopback devices:\n    {available}"
             )
 
+        # Restrict to WASAPI: the same friendly name also exists under
+        # DirectSound, and playback must hit the endpoint loopback taps.
+        wasapi_host = p.get_host_api_info_by_type(pa.paWASAPI)["index"]
         out_idx = next(
             (i for i in range(p.get_device_count())
              if (info := p.get_device_info_by_index(i))["name"] == target_name
+             and info["hostApi"] == wasapi_host
              and info["maxOutputChannels"] >= EXPECTED_CHANNELS),
-            p.get_default_output_device_info()["index"],
+            None,
         )
+        if out_idx is None:
+            _abort(f"pyaudiowpatch: no WASAPI output device named {target_name!r}.")
 
         chunk = 1024
 
@@ -648,9 +656,46 @@ def _stimulus_tag(stim_path: Path, meta: dict) -> str:
     return str(meta.get("kind", "stimulus"))
 
 
+def clipping_advice(clip_count: int, off_gain_db: float | None,
+                    endpoint_db: float | None) -> str | None:
+    """What to tell the user about samples at full scale in a capture.
+
+    The off capture is unprocessed, so its peak against the stimulus's shows
+    whether the endpoint volume is applied before the loopback tap. On some
+    machines it is not: the dev X1 Yoga reads 0.0 dB at both 20 % and 50 %.
+    There, clipping is Dolby's own output reaching full scale, and lowering
+    the volume cannot change it."""
+    if clip_count == 0:
+        return None
+    volume_down = endpoint_db is not None and endpoint_db < -1.0
+    if off_gain_db is not None and volume_down:
+        if abs(off_gain_db) < 0.5:
+            return (f"{clip_count} samples reached full scale in Dolby's own "
+                    "output. The off capture matched the stimulus with the "
+                    "volume turned down, so the system volume isn't in this "
+                    "recording and lowering it won't change this. A few "
+                    "clipped samples don't affect the analysis.")
+        return "clipping detected — lower system volume and re-capture."
+    return (f"{clip_count} samples reached full scale. Capture the off profile "
+            "first, with the volume below 100%: if its level matches the "
+            "stimulus, the system volume isn't in this recording and a few "
+            "clipped samples are Dolby's own and harmless. Otherwise lower "
+            "the system volume and re-capture.")
+
+
+def _off_gain_from(baseline_wav: Path) -> float | None:
+    """The off capture's loopback gain, from its sidecar, if recorded."""
+    try:
+        meta = json.loads(baseline_wav.with_suffix(".json").read_text())
+        return meta["capture"].get("loopback_gain_db")
+    except (OSError, ValueError, KeyError, AttributeError):
+        return None
+
+
 def post_capture_checks(
     label: str, stim_tag: str, stim_kind: str, capture: np.ndarray,
     sr: int, out_dir: Path, skip_baseline: bool,
+    stim_peak_db: float | None = None, endpoint_db: float | None = None,
 ) -> dict:
     peak = float(np.max(np.abs(capture)))
     rms = float(np.sqrt(np.mean(capture ** 2)))
@@ -659,8 +704,6 @@ def post_capture_checks(
     rms_db = 20.0 * np.log10(rms + 1e-12)
     _info(f"capture peak {peak_db:+.1f} dBFS, RMS {rms_db:+.1f} dBFS, "
           f"clip samples: {clip_count}")
-    if clip_count > 0:
-        _warn("clipping detected — lower system volume and re-capture.")
     if peak_db < -60.0:
         _warn(f"capture peak unusually quiet ({peak_db:.1f} dBFS); raise volume.")
 
@@ -672,6 +715,9 @@ def post_capture_checks(
         "clip_samples": clip_count,
         "similarity_to_off": None,
     }
+    if label == "off" and stim_peak_db is not None:
+        # Unprocessed, so this is the endpoint volume's share of the loopback.
+        metrics["loopback_gain_db"] = peak_db - stim_peak_db
 
     # Per-stimulus baseline lookup, in priority order:
     #   1. exact-tag match (loopback_<tag>_off.wav) — best, same level + content
@@ -687,6 +733,11 @@ def post_capture_checks(
             legacy = out_dir / "loopback_off.wav"
             if legacy.exists():
                 baseline = legacy
+    off_gain = (metrics.get("loopback_gain_db") if label == "off"
+                else _off_gain_from(baseline) if baseline.exists() else None)
+    advice = clipping_advice(clip_count, off_gain, endpoint_db)
+    if advice:
+        _warn(advice)
     if skip_baseline or label == "off" or not baseline.exists():
         return metrics
     try:
@@ -809,9 +860,13 @@ def main() -> int:
     sf.write(str(out_path), capture, EXPECTED_SR, subtype="FLOAT")
     _info(f"wrote {out_path} ({capture.shape[0]} samples)")
 
+    stim_peak = float(np.max(np.abs(sf.read(str(stim_path), dtype="float32",
+                                            always_2d=True)[0])))
     capture_metrics = post_capture_checks(
         args.label, stim_tag, stim_kind, capture, EXPECTED_SR, out_dir,
         args.skip_baseline_check,
+        stim_peak_db=20.0 * np.log10(stim_peak + 1e-12),
+        endpoint_db=(endpoint_volume or {}).get("level_db"),
     )
 
     metadata = {
