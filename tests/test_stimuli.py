@@ -56,6 +56,126 @@ def test_speech_is_deterministic():
     assert np.array_equal(a, b)
 
 
+# ----- human-speech probes built from a recording -----
+
+def _fake_recording() -> tuple[np.ndarray, dict]:
+    """3 s of syllable-rate modulated noise with a pause: a stand-in clip."""
+    rng = np.random.default_rng(5)
+    t = np.arange(3 * ms.SR) / ms.SR
+    clip = rng.standard_normal(t.size) * (0.55 + 0.45 * np.cos(2 * np.pi * 4 * t))
+    clip[ms.SR:ms.SR + ms.SR // 3] = 0.0
+    return 0.1 * clip, {"source": "file", "source_name": "fake.wav",
+                        "source_sha256": "0" * 64}
+
+
+def test_speech_human_is_centred_at_the_speech_level():
+    clip, prov = _fake_recording()
+    stereo, meta = ms.make_speech_human(clip, prov)
+    assert np.array_equal(stereo[:, 0], stereo[:, 1])
+    assert _active_rms_db(stereo[:, 0].astype(np.float64)) == pytest.approx(-18.0, abs=1.0)
+    assert meta["kind"] == "speech" and meta["source_sha256"] == "0" * 64
+    assert meta["duration_seconds"] == pytest.approx(ms.HUMAN_SPEECH_T + ms.STEADY_TAIL)
+
+
+def test_speech_over_bed_puts_only_bed_in_the_side():
+    clip, prov = _fake_recording()
+    stereo, meta = ms.make_speech_over_bed(clip, prov)
+    active = slice(ms.SR, int(ms.HUMAN_SPEECH_T * ms.SR) - ms.SR)
+    side = (stereo[active, 0].astype(np.float64) - stereo[active, 1]) / 2
+    # independent equal beds: side RMS = bed RMS - 3 dB; speech cancels
+    bed_db = -18.0 + ms.SPEECH_BED_DB + meta["peak_guard_scale_db"]
+    side_db = 20 * np.log10(np.sqrt(np.mean(side ** 2)))
+    assert side_db == pytest.approx(bed_db - 3.0, abs=0.5)
+    assert meta["stereo_mode"] == "asymmetric"
+
+
+def test_speech_then_pink_switches_at_the_split():
+    clip, prov = _fake_recording()
+    stereo, meta = ms.make_speech_then_pink(clip, prov)
+    mono = stereo[:, 0].astype(np.float64)
+    assert np.array_equal(stereo[:, 0], stereo[:, 1])
+    split = int(ms.SPEECH_THEN_PINK_SPLIT_S * ms.SR)
+    pink = mono[split + ms.SR // 10:int(ms.HUMAN_SPEECH_T * ms.SR) - ms.SR // 10]
+    assert 20 * np.log10(np.sqrt(np.mean(pink ** 2))) == pytest.approx(-18.0, abs=0.5)
+    assert meta["pink_seconds"] == [ms.SPEECH_THEN_PINK_SPLIT_S, ms.HUMAN_SPEECH_T]
+
+
+def test_speech_over_bed_records_the_measured_gap():
+    """The peak guard can lower the speech but not the bed, so the sidecar
+    must carry the gap as built, not just the target."""
+    clip, prov = _fake_recording()
+    # A -3 dBFS speech target cannot fit under the -1 dBFS peak guard.
+    _, meta = ms.make_speech_over_bed(clip, prov, level_dbfs_rms=-3.0)
+    gap = meta["bed_db_re_speech_measured"]
+    assert gap > ms.SPEECH_BED_DB + 0.5   # bed closer to the speech than -10
+
+
+def test_unsigned_8bit_source_is_centred(tmp_path):
+    t = np.arange(ms.SR) / ms.SR
+    pcm = (128 + 100 * np.sin(2 * np.pi * 440 * t)).astype(np.uint8)
+    src = tmp_path / "u8.wav"
+    wavfile.write(str(src), ms.SR, pcm)
+    mono, _ = ms.load_speech_source(src)
+    assert abs(float(np.mean(mono))) < 0.01
+    assert 0.7 < float(np.max(np.abs(mono))) < 0.8
+
+
+def test_librivox_rejects_a_download_with_the_wrong_hash(tmp_path,
+                                                         monkeypatch):
+    import io
+    import urllib.request
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda url, timeout=0: _Resp(b"not the reading"))
+    with pytest.raises(SystemExit, match="not the pinned"):
+        ms.fetch_librivox_clip(tmp_path)
+    assert not (tmp_path / "speech_source_librivox.mp3").exists()
+
+
+def test_speech_source_librivox_reaches_the_sidecars(tmp_path, monkeypatch):
+    clip, _ = _fake_recording()
+    wav = tmp_path / "clip.wav"
+    wavfile.write(str(wav), ms.SR, clip.astype(np.float32))
+    monkeypatch.setattr(ms, "fetch_librivox_clip",
+                        lambda out_dir: (wav, {"source_url": "u"}))
+    out = tmp_path / "out"
+    out.mkdir()
+    monkeypatch.setattr(ms, "OUT_DIR", out)
+    ms.main(["--speech-source", "librivox", "--speech-only"])
+    import json
+    meta = json.loads((out / "stimulus_speech_human.json").read_text())
+    assert meta["source_url"] == "u" and meta["source_name"] == "clip.wav"
+
+
+def test_help_writes_no_stimuli(tmp_path, monkeypatch, capsys):
+    """`--help` once ran the whole build into the caller's directory."""
+    monkeypatch.setattr(ms, "OUT_DIR", tmp_path)
+    with pytest.raises(SystemExit):
+        ms.main(["--help"])
+    assert "--speech-source" in capsys.readouterr().out
+    assert not any(tmp_path.iterdir())
+
+
+def test_speech_only_builds_just_the_three_probes(tmp_path, monkeypatch):
+    clip, _ = _fake_recording()
+    src = tmp_path / "src.wav"
+    wavfile.write(str(src), ms.SR, clip.astype(np.float32))
+    out = tmp_path / "out"
+    out.mkdir()
+    monkeypatch.setattr(ms, "OUT_DIR", out)
+    ms.main(["--speech-source", str(src), "--speech-only"])
+    assert sorted(p.name for p in out.glob("*.wav")) == [
+        "stimulus_speech_human.wav", "stimulus_speech_over_bed.wav",
+        "stimulus_speech_then_pink.wav"]
+
+
 # ----- loud stepped sine (`r-mbc-ratio-time-constants`,
 # `r-fixed-dynamics-constants`) -----
 

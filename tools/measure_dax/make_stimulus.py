@@ -27,6 +27,13 @@ matching `.json` sidecar:
     stimulus_speech              espeak (or LTASS-noise fallback) — the
                                  Media-Intelligence dialog-enhancer probe
 
+  Built only with --speech-source WAV (a recording of a real reader) or
+  --speech-source librivox (downloads the clip the dev device used):
+    stimulus_speech_human        the recording, centred
+    stimulus_speech_over_bed     centred speech over an independent pink bed
+                                 per channel, 10 dB down (side = bed only)
+    stimulus_speech_then_pink    20 s speech, then 20 s pink at the same level
+
 The non-LTI dynamics (compressor, regulator, brickwall) only engage on
 the loud bass_burst / stepped_loud variants; the LTI battery leaves them
 dormant (see research `r-dynamics-dormancy`).
@@ -36,6 +43,8 @@ analyze.py keys off each sidecar's `stereo_mode`.
 """
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -533,6 +542,45 @@ def _speech_shaped_noise(n: int, seed: int) -> np.ndarray:
     return sig * am * pause
 
 
+def _tile_speech(clip: np.ndarray, n_total: int) -> np.ndarray:
+    """Repeat `clip` with a sentence pause between copies, cut to n_total."""
+    n_pause = int(round(SPEECH_PAUSE_S * SR))
+    reps: list[np.ndarray] = []
+    filled = 0
+    while filled < n_total:
+        reps.append(clip)
+        reps.append(np.zeros(n_pause))
+        filled += clip.size + n_pause
+    return np.concatenate(reps)[:n_total]
+
+
+def _active_rms(mono: np.ndarray) -> float:
+    """Linear RMS over active samples: those above −40 dB of the peak, so
+    pauses do not pull the level down."""
+    peak = float(np.max(np.abs(mono))) + 1e-30
+    active = np.abs(mono) > peak * 10.0 ** (-40.0 / 20.0)
+    return float(np.sqrt(np.mean(mono[active] ** 2))) if active.any() else peak
+
+
+def _finish_speech(mono: np.ndarray, level_dbfs_rms: float) -> np.ndarray:
+    """Fade the ends, set the active-segment RMS, guard the peak at −1 dBFS.
+
+    Samples above −40 dB of the clip peak count as active, so pauses do not
+    pull the level down."""
+    fade_n = int(round(SPEECH_FADE_MS * 1e-3 * SR))
+    fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_n) / fade_n))
+    mono[:fade_n] *= fade
+    mono[-fade_n:] *= fade[::-1]
+
+    rms = _active_rms(mono)
+    mono *= 10.0 ** (level_dbfs_rms / 20.0) / (rms + 1e-30)
+    peak = float(np.max(np.abs(mono)))
+    headroom = 10.0 ** (-1.0 / 20.0)
+    if peak > headroom:
+        mono *= headroom / peak
+    return mono
+
+
 def make_speech(level_dbfs_rms: float = -18.0) -> tuple[np.ndarray, dict]:
     """Speech stimulus, stereo L=R (dialog is center-panned content).
 
@@ -544,32 +592,12 @@ def make_speech(level_dbfs_rms: float = -18.0) -> tuple[np.ndarray, dict]:
     if synth is not None:
         clip, version = synth
         source = "espeak"
-        n_pause = int(round(SPEECH_PAUSE_S * SR))
-        reps: list[np.ndarray] = []
-        filled = 0
-        while filled < n_total:
-            reps.append(clip)
-            reps.append(np.zeros(n_pause))
-            filled += clip.size + n_pause
-        mono = np.concatenate(reps)[:n_total]
+        mono = _tile_speech(clip, n_total)
     else:
         mono = _speech_shaped_noise(n_total, SPEECH_FALLBACK_SEED)
         source, version = "shaped_noise", None
 
-    fade_n = int(round(SPEECH_FADE_MS * 1e-3 * SR))
-    fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_n) / fade_n))
-    mono[:fade_n] *= fade
-    mono[-fade_n:] *= fade[::-1]
-
-    # normalize active RMS (samples above −40 dB of clip peak count as active)
-    peak = float(np.max(np.abs(mono))) + 1e-30
-    active = np.abs(mono) > peak * 10.0 ** (-40.0 / 20.0)
-    rms = float(np.sqrt(np.mean(mono[active] ** 2))) if active.any() else peak
-    mono *= 10.0 ** (level_dbfs_rms / 20.0) / (rms + 1e-30)
-    peak = float(np.max(np.abs(mono)))
-    headroom = 10.0 ** (-1.0 / 20.0)
-    if peak > headroom:
-        mono *= headroom / peak
+    mono = _finish_speech(mono, level_dbfs_rms)
 
     tail = np.zeros(int(round(STEADY_TAIL * SR)))
     mono = np.concatenate([mono, tail]).astype(np.float32)
@@ -590,6 +618,207 @@ def make_speech(level_dbfs_rms: float = -18.0) -> tuple[np.ndarray, dict]:
         "format": "float32 stereo L=R",
         "stereo_mode": "symmetric",
     }
+    return stereo, meta
+
+
+# ----- human speech (dialog-enhancer probe, built from a recording) -----
+
+# espeak's voice reads as "fairly robotic", and on the dev device DAX showed
+# no dialog-enhancer signature on it (research
+# `r-dialog-enhancer-gain-ceiling`), so a classifier that ignores synthetic
+# speech would explain the null. These probes are built from a recording of a
+# real reader, passed with --speech-source; no recording ships in the repo.
+# Each sidecar names the file and its SHA-256, so a capture can be traced to
+# the exact clip.
+# Pink bed level relative to the *target* speech level. The −1 dBFS peak guard
+# can land the speech below its target, so the sidecar records the measured
+# gap too: on the 40 s LibriVox clip it is about 9 dB, not 10.
+SPEECH_BED_DB = -10.0
+# The classifier's ramp and hold times are unmeasured, so these run far past
+# the pink battery's 12 s. Analyse them in short windows across the whole
+# capture: a plateau well before the end shows the length was enough.
+HUMAN_SPEECH_T = 40.0
+SPEECH_THEN_PINK_SPLIT_S = 20.0  # speech for the first 20 s, pink after
+SPEECH_BED_SEEDS = (200, 201)
+
+
+# A fixed public-domain reading, so anyone can rebuild the exact clip the
+# dev device was captured with: `--speech-source librivox`.
+LIBRIVOX = {
+    "url": "https://archive.org/download/giftofmagi/"
+           "gift_of_the_magi_henry_blb.mp3",
+    "sha256": "63c035b3b8e24aca131364695ae7e57c9efed1396af142420183c727f8a08964",
+    "start_s": 50.25,     # past the LibriVox intro, at a pause
+    "duration_s": 40.0,
+    "credit": "The Gift of the Magi (O. Henry), read by Betsie Bush; "
+              "LibriVox, public domain",
+}
+
+
+def fetch_librivox_clip(out_dir: Path) -> tuple[Path, dict]:
+    """Download (once), verify and cut the LibriVox clip into out_dir.
+
+    The MP3 is checked against its pinned SHA-256. ffmpeg decodes the whole
+    file to 48 kHz mono, and the 40 s are cut at an exact sample offset, the
+    path the dev device's clip took. Different ffmpeg builds may decode a
+    few samples differently, so each sidecar records its own clip's hash."""
+    import urllib.request
+    mp3 = out_dir / "speech_source_librivox.mp3"
+    if (not mp3.is_file()
+            or hashlib.sha256(mp3.read_bytes()).hexdigest() != LIBRIVOX["sha256"]):
+        print(f"Downloading {LIBRIVOX['url']}")
+        with urllib.request.urlopen(LIBRIVOX["url"], timeout=120) as r:
+            data = r.read()
+        got = hashlib.sha256(data).hexdigest()
+        if got != LIBRIVOX["sha256"]:
+            raise SystemExit(f"the LibriVox download's SHA-256 is {got}, not "
+                             f"the pinned {LIBRIVOX['sha256']}; not using it")
+        mp3.write_bytes(data)
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise SystemExit("--speech-source librivox needs ffmpeg to decode the "
+                         "MP3; install it, or pass a WAV of your own")
+    with tempfile.TemporaryDirectory() as td:
+        full = Path(td) / "full.wav"
+        subprocess.run([ffmpeg, "-v", "error", "-y", "-i", str(mp3),
+                        "-ac", "1", "-ar", str(SR), "-c:a", "pcm_f32le",
+                        str(full)], check=True)
+        _, data = wavfile.read(str(full))
+    i0 = int(round(LIBRIVOX["start_s"] * SR))
+    clip = data[i0:i0 + int(round(LIBRIVOX["duration_s"] * SR))]
+    wav = out_dir / "speech_source_librivox_40s.wav"
+    wavfile.write(str(wav), SR, clip.astype(np.float32))
+    ver = subprocess.run([ffmpeg, "-version"], capture_output=True, text=True)
+    return wav, {"source_url": LIBRIVOX["url"],
+                 "source_mp3_sha256": LIBRIVOX["sha256"],
+                 "source_segment_seconds": [LIBRIVOX["start_s"],
+                                            LIBRIVOX["duration_s"]],
+                 "source_credit": LIBRIVOX["credit"],
+                 "decoder": (ver.stdout.splitlines() or ["ffmpeg"])[0]}
+
+
+def load_speech_source(path: Path) -> tuple[np.ndarray, dict]:
+    """Read a speech recording as mono float at SR, with its provenance."""
+    sr_in, data = wavfile.read(str(path))
+    if data.dtype.kind == "i":
+        mono = data.astype(np.float64) / float(np.iinfo(data.dtype).max)
+    elif data.dtype.kind == "u":
+        # 8-bit WAV PCM is unsigned, centred on 128.
+        mono = (data.astype(np.float64) - 128.0) / 128.0
+    else:
+        mono = data.astype(np.float64)
+    if mono.ndim > 1:
+        mono = mono.mean(axis=1)
+    if sr_in != SR:
+        from math import gcd
+        g = gcd(SR, int(sr_in))
+        mono = resample_poly(mono, SR // g, int(sr_in) // g)
+    sha = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return mono, {"source": "file", "source_name": Path(path).name,
+                  "source_sha256": sha}
+
+
+def _active_rms_db(mono: np.ndarray) -> float:
+    return 20.0 * np.log10(_active_rms(mono) + 1e-30)
+
+
+def _human_speech_meta(kind: str, stereo: np.ndarray, provenance: dict,
+                       level_dbfs_rms: float, stereo_mode: str,
+                       speech: np.ndarray) -> dict:
+    return {
+        "kind": kind,
+        "sample_rate": SR,
+        "duration_seconds": stereo.shape[0] / SR,
+        "tail_seconds": STEADY_TAIL,
+        "level_dbfs_rms_active": level_dbfs_rms,
+        # the −1 dBFS peak guard can land a long clip below the target
+        "speech_dbfs_rms_active_measured": round(_active_rms_db(speech), 2),
+        **provenance,
+        "stimulus_samples": int(stereo.shape[0]),
+        "format": f"float32 stereo {'L=R' if stereo_mode == 'symmetric' else 'L!=R'}",
+        "stereo_mode": stereo_mode,
+    }
+
+
+def make_speech_human(clip: np.ndarray, provenance: dict,
+                      level_dbfs_rms: float = -18.0) -> tuple[np.ndarray, dict]:
+    """The recording, centred (L=R), at the speech level; tiled if short."""
+    n_total = int(round(HUMAN_SPEECH_T * SR))
+    mono = _finish_speech(_tile_speech(clip, n_total), level_dbfs_rms)
+    mono = np.concatenate([mono, np.zeros(int(round(STEADY_TAIL * SR)))])
+    stereo = np.column_stack([mono, mono]).astype(np.float32)
+    meta = _human_speech_meta("speech", stereo, provenance, level_dbfs_rms,
+                              "symmetric", mono[:n_total])
+    meta.update(analysis_window_start_seconds=10.0,
+                analysis_window_end_seconds=HUMAN_SPEECH_T - 1.0)
+    return stereo, meta
+
+
+def make_speech_over_bed(clip: np.ndarray, provenance: dict,
+                         level_dbfs_rms: float = -18.0,
+                         bed_db: float = SPEECH_BED_DB
+                         ) -> tuple[np.ndarray, dict]:
+    """Centred speech over an independent pink bed on each channel.
+
+    The side signal (L−R)/2 then carries bed only, so a boost there means the
+    dialog enhancer acts on the whole signal, not just the centre. The bed's
+    level during speech versus pauses shows any ducking."""
+    n_total = int(round(HUMAN_SPEECH_T * SR))
+    speech = _finish_speech(_tile_speech(clip, n_total), level_dbfs_rms)
+    fade_n = int(round(STEADY_FADE_MS * 1e-3 * SR))
+    fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_n) / fade_n))
+    beds = []
+    for seed in SPEECH_BED_SEEDS:
+        bed = _pink_noise(n_total, seed=seed) * 10.0 ** ((level_dbfs_rms + bed_db) / 20.0)
+        bed[:fade_n] *= fade
+        bed[-fade_n:] *= fade[::-1]
+        beds.append(bed)
+    left, right = speech + beds[0], speech + beds[1]
+    peak = max(float(np.max(np.abs(left))), float(np.max(np.abs(right))))
+    headroom = 10.0 ** (-1.0 / 20.0)
+    scale = headroom / peak if peak > headroom else 1.0
+    tail = np.zeros(int(round(STEADY_TAIL * SR)))
+    stereo = np.column_stack([np.concatenate([left * scale, tail]),
+                              np.concatenate([right * scale, tail])]
+                             ).astype(np.float32)
+    meta = _human_speech_meta("speech_over_bed", stereo, provenance,
+                              level_dbfs_rms, "asymmetric", speech * scale)
+    bed_rms_db = level_dbfs_rms + bed_db + 20.0 * np.log10(scale)
+    meta.update(bed_db_re_speech=bed_db,
+                bed_db_re_speech_measured=round(
+                    bed_rms_db - meta["speech_dbfs_rms_active_measured"], 2),
+                bed_seeds=list(SPEECH_BED_SEEDS),
+                peak_guard_scale_db=20.0 * np.log10(scale),
+                analysis_window_start_seconds=10.0,
+                analysis_window_end_seconds=HUMAN_SPEECH_T - 1.0)
+    return stereo, meta
+
+
+def make_speech_then_pink(clip: np.ndarray, provenance: dict,
+                          level_dbfs_rms: float = -18.0
+                          ) -> tuple[np.ndarray, dict]:
+    """20 s of centred speech, then 20 s of centred pink at the target level.
+
+    A boost that outlasts the speech onto the pink shows how long the
+    dialog enhancer holds after speech stops."""
+    n_split = int(round(SPEECH_THEN_PINK_SPLIT_S * SR))
+    n_total = int(round(HUMAN_SPEECH_T * SR))
+    speech = _finish_speech(_tile_speech(clip, n_split), level_dbfs_rms)
+    pink = _pink_noise(n_total - n_split, seed=0) * 10.0 ** (level_dbfs_rms / 20.0)
+    fade_n = int(round(SPEECH_FADE_MS * 1e-3 * SR))
+    fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_n) / fade_n))
+    pink[:fade_n] *= fade
+    pink[-fade_n:] *= fade[::-1]
+    mono = np.concatenate([speech, pink, np.zeros(int(round(STEADY_TAIL * SR)))])
+    peak = float(np.max(np.abs(mono)))
+    headroom = 10.0 ** (-1.0 / 20.0)
+    if peak > headroom:
+        mono *= headroom / peak
+    stereo = np.column_stack([mono, mono]).astype(np.float32)
+    meta = _human_speech_meta("speech_then_pink", stereo, provenance,
+                              level_dbfs_rms, "symmetric", mono[:n_split])
+    meta.update(speech_seconds=[0.0, SPEECH_THEN_PINK_SPLIT_S],
+                pink_seconds=[SPEECH_THEN_PINK_SPLIT_S, HUMAN_SPEECH_T])
     return stereo, meta
 
 
@@ -723,7 +952,41 @@ def write_stimulus(name: str, stereo: np.ndarray, meta: dict,
 PINK_LADDER_DBFS = (-60, -48, -30, -24, -14)
 
 
-def main() -> None:
+def _human_speech_suite(source: str) -> None:
+    extra = {}
+    if source == "librivox":
+        path, extra = fetch_librivox_clip(OUT_DIR)
+    else:
+        path = Path(source)
+    clip, provenance = load_speech_source(path)
+    provenance.update(extra)
+    for name, build in (("stimulus_speech_human", make_speech_human),
+                        ("stimulus_speech_over_bed", make_speech_over_bed),
+                        ("stimulus_speech_then_pink", make_speech_then_pink)):
+        stereo, meta = build(clip, provenance)
+        write_stimulus(name, stereo, meta)
+
+
+def main(argv: list[str] | None = None) -> None:
+    ap = argparse.ArgumentParser(
+        description="Write the DAX3 measurement stimulus suite (wav + json "
+                    "sidecar each) into the current directory.")
+    ap.add_argument("--speech-source", metavar="WAV|librivox",
+                    help="a recording of a real reader, or 'librivox' to "
+                         "download and cut the public-domain clip the dev "
+                         "device used (needs ffmpeg); also builds the "
+                         "speech_human, speech_over_bed and speech_then_pink "
+                         "dialog-enhancer probes from it")
+    ap.add_argument("--speech-only", action="store_true",
+                    help="build only the three --speech-source probes")
+    args = ap.parse_args(argv)
+    if args.speech_only and args.speech_source is None:
+        ap.error("--speech-only needs --speech-source")
+    if args.speech_only:
+        print("Building human-speech probes:")
+        _human_speech_suite(args.speech_source)
+        return
+
     print("Building stimulus suite:")
 
     # sweep — use a single shared inverse filter for both levels.
@@ -823,6 +1086,9 @@ def main() -> None:
     # speech-gated by Media Intelligence; pink can't excite it.
     stereo, meta = make_speech(level_dbfs_rms=-18.0)
     write_stimulus("stimulus_speech", stereo, meta)
+
+    if args.speech_source is not None:
+        _human_speech_suite(args.speech_source)
 
     print(f"\ninverse_sweep.npy: written ({inverse.size} samples, "
           "shared by stimulus_sweep and stimulus_sweep_quiet)")

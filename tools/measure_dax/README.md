@@ -53,6 +53,17 @@ directory, then the script directory.
 | `stimulus_stepped_loud.wav` | −2 dBFS peak | same grid again, loud enough to wake the MBC knee |
 | `stimulus_bass_burst.wav`, `stimulus_bass_burst_quiet.wav` | −5 / −25 dBFS peak | sustained 50/80/120/180 Hz bursts: the bass-band regulator and volmax probe |
 | `stimulus_pink{60,48,30,24,14}.wav` | −60 … −14 dBFS RMS | the leveler ladder. With `pink` and `pink_quiet` these are seven rungs of one curve, DAX-on minus DAX-off at each input level |
+| `stimulus_speech_human.wav` | −18 dBFS RMS over active segments | a recording of a real reader, centred: the dialog-enhancer probe for a classifier that ignores synthetic speech. Built only with `--speech-source WAV` |
+| `stimulus_speech_over_bed.wav` | bed 10 dB below the −18 speech target | the same speech over an independent pink bed per channel, so the side signal is bed only: shows whether a boost reaches the whole signal, and any ducking |
+| `stimulus_speech_then_pink.wav` | −18 dBFS RMS | 20 s of the speech, then 20 s of pink: shows how long a speech-gated boost holds |
+
+- **`--speech-source WAV`.** The three human-speech probes need a recording;
+  none ships in the repo. `--speech-source librivox` downloads the public-domain
+  reading the dev device was captured with, checks it against a pinned SHA-256
+  and cuts the same 40 s with ffmpeg. Each sidecar records the file name and
+  SHA-256. `--speech-only` builds just those three. They run 40 s because the
+  classifier's ramp and hold times are unmeasured; analyse them in short
+  windows, and a plateau well before the end shows the length was enough.
 
 - **`stimulus_pink{60,48,30,24,14}.wav`.** −14 is the loud end pink can reach
   without clipping, given its ~13 dB crest factor. Use
