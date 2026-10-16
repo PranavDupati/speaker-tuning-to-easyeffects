@@ -149,7 +149,9 @@ sentences that go first are the ones listed below.
   flag, package or check.
 - Give copy-pasteable commands, not descriptions of what to change. Write one
   command per line, with no shell variables, loops, `&&` chains or clever
-  quoting. Fenced blocks run exactly as written.
+  quoting. Fenced blocks run exactly as written. For a capture battery
+  that repeats one stimulus list across profiles, define the list once
+  and give one loop per profile. That is shorter to paste and to read.
 - Assume a reporter who takes on a capture can handle the basics, such as
   installing Python, opening a terminal in a folder or copying files to
   another machine. Name the prerequisite in a clause and leave the how to
