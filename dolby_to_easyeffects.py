@@ -994,6 +994,15 @@ def main(argv: list[str] | None = None,
                                 "tuning's volume leveler is disabled in the "
                                 "XML, so there is no leveler stage to "
                                 "activate. The preset is unchanged.")
+    # Same silence for dialog: make_dialog_enhancer builds nothing when the
+    # XML's dialog enhancer is off or at amount 0.
+    if ("dialog" in args.enable
+            and "dialog-active" not in tally.filters_by_profile):
+        print()
+        console._cprint_wrapped("warn", "--enable dialog had no effect: this "
+                                "tuning's dialog enhancer is off or set to "
+                                "zero in the XML, so there is no stage to "
+                                "activate. The preset is unchanged.")
     if "virtual-bass" in args.enable:
         if "virtual-bass-active" in tally.filters_by_profile:
             # The flag worked, but the audible half lives elsewhere: EE's

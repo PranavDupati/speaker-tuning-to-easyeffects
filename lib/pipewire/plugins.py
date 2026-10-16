@@ -656,7 +656,10 @@ class PluginHandler:
 EE_KEY_DISPATCH: dict[str, PluginHandler] = {
     "convolver#0":            PluginHandler(emit_convolver),
     "equalizer#0":            PluginHandler(emit_peq, ("peq",)),
-    "equalizer#1":            PluginHandler(emit_peq, ("dialog",)),
+    # The dialog enhancer ships bypassed unless --enable dialog, so its
+    # bypass is the expected default, as autogain's is on HDA.
+    "equalizer#1":            PluginHandler(emit_peq, ("dialog",),
+                                            silent_if_bypassed=True),
     "multiband_compressor#0": PluginHandler(emit_mb_compressor, ("mbc",)),
     "multiband_compressor#1": PluginHandler(emit_mb_compressor, ("reg",)),
     # A vendor APO layer's dynamics, after Dolby's (lib/apo/layer.py). Same

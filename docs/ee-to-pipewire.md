@@ -356,6 +356,7 @@ can't reach.
 | `bass_enhancer#0` | Calf `BassEnhancer` | EE wraps Calf BassEnhancer (`src/bass_enhancer.cpp:67-74`). Triggers on SoundWire devices with small drivers. |
 | `stereo_tools#0` | Calf `StereoTools` | EE wraps Calf StereoTools (`src/stereo_tools.cpp:65-80`). The generator emits no `stereo_tools#0` block; see below. |
 | `autogain#0` (bypassed) | *(silent skip)* | HDA default is bypass=true, unless the preset was generated with `--enable autogain`. Emitting a bypassed node would just clutter. |
+| `equalizer#1` (dialog, bypassed) | *(silent skip)* | The default is bypass=true, unless the preset was generated with `--enable dialog`. |
 | `_vbe` (top-level metadata, `--enable virtual-bass` only) | LSP `filter_stereo` ×7 + Calf `Saturator` ×2 + builtin `copy`/`mixer` | Not an EE plugin key. EasyEffects cannot express the parallel branch, so the generator records the XML's virtual-bass values top-level, under the `_generator` contract. |
 | `autogain#0` (active) | LSP `autogain_stereo` | EE's autogain is native libebur128 (`src/autogain.cpp`). `autogain_stereo` is the LV2 equivalent, a K-weighted (LUFS) loudness AGC. The mapping was validated at a 20 s history. |
 
@@ -408,7 +409,8 @@ silently:
 
 - unknown plugin keys, so a non-Dolby preset fed in surfaces as warnings, not a
   traceback
-- bypassed plugins, except autogain on HDA, where bypass is the expected default
+- bypassed plugins, except autogain on HDA and the dialog enhancer, where
+  bypass is the expected default
 - unknown enum labels, translated to the fallback integer with a pointer at the
   `EE_*` table to extend
 - presets declaring more than 16 EQ bands, with the excess dropped

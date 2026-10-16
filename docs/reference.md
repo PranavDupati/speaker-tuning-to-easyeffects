@@ -88,7 +88,7 @@ the bass enhancer is SoundWire-only.
 | 1 | Convolver | IEQ target + `audio-optimizer-bands` (gated by `audio-optimizer-enable`) | Min-phase FIR of the combined IEQ + speaker-correction curve, normalised so its loudest band sits at 0 dB |
 | 2 | Bass Enhancer (Calf) | IEQ-only SoundWire curve | Harmonic bass restoration on SoundWire speakers. SoundWire-only |
 | 3 | Equalizer | `speaker-peq-filters` | 4th-order high-pass at 100 Hz for speaker protection, plus per-channel PEQ bells/shelves/HP-LP |
-| 4 | Dialog Enhancer | `dialog-enhancer-amount` | Speech-band EQ boost at 2.5 kHz, from a 2nd equalizer instance. On most profiles except music |
+| 4 | Dialog Enhancer | `dialog-enhancer-amount` | Speech-band EQ boost at 2.5 kHz, from a 2nd equalizer instance. Bypassed by default, because DAX boosted only while speech played on the one device measured; `--enable dialog` opts in ([speech gating](research/adaptive-processing.md#r-dialog-enhancer-speech-gating)) |
 | 5 | Autogain | `volume-leveler-*` | Volume leveler. Bypassed by default on HDA, where `--enable autogain` opts in. Active on SoundWire; see below. Placed before the compressor to match Dolby's CP→VLLDP flow |
 | 6 | Multiband Compressor | `mb-compressor-tuning` | 1–4 bands of dynamics processing per `group_count` |
 | 7 | Regulator | `regulator-tuning` (+ `volmax-boost`) | Per-band limiter, a 2nd MBC instance. `volmax-boost` defaults to its `input-gain` slot: ≈+6 dB, pre-band-limiting. The opt-out `--volmax-slot output-gain` moves the boost post-band-limiting; see below |
@@ -382,7 +382,9 @@ Validated against DAX captures:
 
 Unvalidated, the "`ieq-amount` class": these ship by default but are **not
 yet confirmed against a DAX capture**. Among them:
-- The dialog-enhancer dB ceiling.
+- The dialog-enhancer gain across `amount`. Its gating and shape at amount 5
+  are measured on one device
+  ([speech gating](research/adaptive-processing.md#r-dialog-enhancer-speech-gating)).
 - The regulator slope/knee mappings.
 - The MBC Q15 decode.
 - The makeup offset for a threshold below −60 dB

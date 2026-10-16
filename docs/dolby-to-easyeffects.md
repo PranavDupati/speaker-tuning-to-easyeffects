@@ -76,7 +76,7 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   [Disabling and enabling filters](filters.md).
 - `--enable NAME` — switch on an optional stage the preset leaves off
   (repeatable). Valid names: `autogain`, `level-restore`, `virtual-bass`,
-  `vendor-apo`. See
+  `dialog`, `vendor-apo`. See
   [Disabling and enabling filters](filters.md).
 - `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness
   gain is injected. The default `input-gain` runs it through the per-band

@@ -405,7 +405,7 @@ def _print_bass_enhancer(tuning, disabled, is_soundwire):
                         indent="  ")
 
 
-def _print_dialog(tuning, disabled):
+def _print_dialog(tuning, disabled, enabled=None):
     dialog_enhancer = tuning.dialog_enhancer
     if dialog_enhancer:
         # dB first: "amount=5" has no knowable scale (it's a raw schema
@@ -413,18 +413,42 @@ def _print_dialog(tuning, disabled):
         # report handle.
         gain = dialog_enhancer["amount"] / parse.DB_FIXED_POINT_SCALE * 6.0
         raw = f"amount {dialog_enhancer['amount']} of 16 in your tuning"
+        if round(gain, 2) <= 0:
+            # make_dialog_enhancer's own gate: amount 0 builds no stage, so
+            # neither state below would be true.
+            print("\nDialog enhancer: on in your tuning, but at amount 0 of "
+                  "16, so there is nothing to build")
+            return
         if "dialog" in disabled:
             # Same shape as the volmax line: a stage the flag dropped says
             # so, instead of describing itself as if it shipped.
             print(f"\nDialog enhancer: {raw} — dropped by --disable dialog")
-        else:
+        elif "dialog" in (enabled or set()):
             # "about", and "where speech sits" rather than "speech boost":
-            # the 6 dB ceiling behind the figure is on the unvalidated list
-            # (reference.md "Validated vs unvalidated mappings"), and ours
-            # is a static bell. Dolby's is speech-gated, so ours lifts that
-            # band on everything, not only on dialogue.
+            # the gain across `amount` is on the unvalidated list
+            # (reference.md "Validated vs unvalidated mappings"). Ours is a
+            # static bell, so it lifts that band on everything; DAX's is
+            # speech-gated (research `r-dialog-enhancer-speech-gating`).
+            # The undo sits here, not in the menu: both flags at once is an
+            # error, so the way back is re-running without --enable.
             print(f"\nDialog enhancer: about +{gain:.1f} dB around 2.5 kHz, "
-                  f"where speech sits ({raw})")
+                  f"where speech sits ({raw}), music included — running "
+                  "because you passed --enable dialog; re-run without it if "
+                  "voices or music turn harsh")
+        else:
+            # Both states, the tuning's and this preset's, with the why,
+            # in the autogain line's shape. The why is a one-laptop
+            # measurement (research `r-dialog-enhancer-speech-gating`), and
+            # "on the laptop we measured" keeps that scope: claims.md.
+            # "music included" is the one wording of the caveat, here, on the
+            # --enable line and in the menu row (one risk, one phrasing).
+            print("\nDialog enhancer: on in your tuning (amount "
+                  f"{dialog_enhancer['amount']} of 16), but this "
+                  "preset ships with it off — on the laptop we measured, "
+                  "Windows boosts voices only while someone is speaking, and "
+                  "a preset can't tell speech from music; add --enable "
+                  f"dialog to boost the speech band, about +{gain:.1f} dB "
+                  "around 2.5 kHz, music included")
 
 
 def _print_surround(tuning):
@@ -863,7 +887,7 @@ def _report_parsed_profile(tuning, disabled, volmax_slot="input-gain",
     findings += _print_apo_layer(apo, apo_on, verbose, shown=apo_shown)
     _print_peq(tuning, verbose)
     _print_bass_enhancer(tuning, disabled, is_soundwire)
-    _print_dialog(tuning, disabled)
+    _print_dialog(tuning, disabled, enabled)
     _print_surround(tuning)
     _print_leveler(tuning, disabled, enabled, is_soundwire)
     _print_mbc(tuning, disabled, verbose)

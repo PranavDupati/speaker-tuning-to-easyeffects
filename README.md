@@ -358,7 +358,7 @@ The preset is up to eight plugins, in this order:
 1. Convolver: FIR speaker correction
 2. Bass Enhancer: SoundWire only
 3. Equalizer: speaker PEQ
-4. Dialog Enhancer
+4. Dialog Enhancer: bypassed by default
 5. Autogain: bypassed by default on HDA
 6. Multiband Compressor
 7. Regulator: per-band limiter

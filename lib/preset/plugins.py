@@ -30,14 +30,18 @@ from lib.preset import fir
 from lib.preset.bands import make_band
 
 
-def make_dialog_enhancer(dialog_enhancer: dict | None) -> dict | None:
+def make_dialog_enhancer(dialog_enhancer: dict | None,
+                         enabled: bool = False) -> dict | None:
     """Dialog enhancer mapped as a broad speech-band EQ boost.
 
-    Dolby's dialog enhancer (DE) isolates speech frequencies and
-    selectively boosts them. We approximate this with a broad Bell
-    filter centered at 2.5 kHz (speech presence region), with gain
-    scaled by the DE amount (0-16 scale): amount/16 * 6 dB, giving a
-    maximum of +6 dB.
+    A bell at 2.5 kHz, Q 0.7, with gain amount/16 * 6 dB (0-16 scale),
+    giving a maximum of +6 dB. It ships bypassed unless `enabled`
+    (--enable dialog): DAX applies its DE only while speech plays, about
+    +0.5 dB on clean speech and +2 dB over a background, and nothing on music
+    or pink. A static bell cannot follow that, so leaving it off is closer
+    on everything but speech. The shape matches DAX's measured bell; the
+    +1.88 dB at amount 5 matches the speech-over-background case (research
+    `r-dialog-enhancer-speech-gating`).
 
     There is no SoundWire-only variant, because the stronger *8 mapping
     plus a 4 kHz "clarity" bell it used was calibrated against the pre-#13
@@ -54,7 +58,7 @@ def make_dialog_enhancer(dialog_enhancer: dict | None) -> dict | None:
         return None
 
     return {
-        "bypass": False,
+        "bypass": not enabled,
         "input-gain": 0.0,
         "output-gain": 0.0,
         "mode": "IIR",

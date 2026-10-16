@@ -128,11 +128,13 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     # Dialog enhancer (speech presence boost) before the volume leveler,
     # matching Dolby's CP order: DE → IEQ → Volume Leveler.
     if "dialog" not in disabled:
-        de = make_dialog_enhancer(dialog_enhancer)
+        de = make_dialog_enhancer(dialog_enhancer, enabled="dialog" in enabled)
         if de:
             preset["output"]["equalizer#1"] = de
             preset["output"]["plugins_order"].append("equalizer#1")
-            emitted.add("dialog")
+            # Same contract as autogain below: the bare name offers
+            # --enable on a rerun, the -active marker keys the --disable row.
+            emitted.add("dialog" if de["bypass"] else "dialog-active")
 
     # Autogain (volume leveler) goes before the compressor/regulator to match
     # Dolby's signal flow: CP (volume leveler) → VLLDP (compressor → regulator).

@@ -213,7 +213,7 @@ def test_enable_choices_match_documented_set():
     """Mirror of the --disable sanity check: --enable's argparse choices
     ARE ENABLEABLE_FILTERS."""
     assert set(ENABLEABLE_FILTERS) == {"autogain", "level-restore",
-                                       "virtual-bass", "vendor-apo"}
+                                       "virtual-bass", "dialog", "vendor-apo"}
 
 
 def test_enable_virtual_bass_embeds_and_points_at_pipewire(tmp_path,
@@ -269,6 +269,38 @@ def test_enable_virtual_bass_warns_on_soundwire(tmp_path, silence_console,
     out = " ".join(capsys.readouterr().out.split())
     assert "--enable virtual-bass had no effect" in out
     assert "bass-enhancer stage" in out
+
+
+def test_enable_dialog_warns_when_the_tuning_has_none(tmp_path,
+                                                     silence_console, capsys):
+    """The synthetic tuning carries no dialog enhancer, so --enable dialog
+    can build nothing and the run must say so instead of staying silent."""
+    silence_console(console)
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check",
+                               "--skip-closing", "--enable", "dialog"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "--enable dialog had no effect" in out
+
+
+@pytest.mark.parametrize("amount, enabled, expect, absent", [
+    (0, set(), "at amount 0 of 16, so there is nothing to build", "+0.0 dB"),
+    (0, {"dialog"}, "nothing to build", "running because"),
+    (5, set(), "ships with it off", "running because"),
+    (5, {"dialog"}, "running because you passed --enable dialog",
+     "ships with it off"),
+])
+def test_dialog_line_matches_what_was_built(capsys, amount, enabled, expect,
+                                            absent):
+    """The run's dialog line gates on make_dialog_enhancer's own condition:
+    amount 0 builds no stage, so it can claim neither state."""
+    from types import SimpleNamespace
+    from lib.report import profile
+    profile._print_dialog(SimpleNamespace(dialog_enhancer={"amount": amount}),
+                          set(), enabled)
+    out = " ".join(capsys.readouterr().out.split())
+    assert expect in out
+    assert absent not in out
 
 
 def test_enable_menu_offers_virtual_bass_on_hda(silence_console, capsys):
@@ -2508,8 +2540,12 @@ def test_troubleshooting_menu_renders_every_emitted_filter(silence_console,
     # Every emitted filter is offered, including the one the hint named: a
     # hint saying "--disable volmax" over a list without volmax in it reads
     # as a bug in the tool.
-    for name in ("volmax", "mbc", "dialog"):
+    for name in ("volmax", "mbc"):
         assert f"--disable {name}" in out
+    # The bare "dialog" marker means it shipped bypassed: an --enable
+    # candidate, never a --disable one.
+    assert "--enable dialog" in out
+    assert "--disable dialog" not in out
     # ...except the regulator, which this hint just said never engages.
     # Offering to switch off a stage the same screen calls inert is a
     # contradiction the reader can't resolve.
@@ -2518,6 +2554,27 @@ def test_troubleshooting_menu_renders_every_emitted_filter(silence_console,
     # The hint itself, and how to apply any of it.
     assert "--disable volmax" in out
     assert "reload the preset in EasyEffects" in out
+
+
+def test_dialog_never_offers_its_disable_row(silence_console, capsys):
+    """dialog ships bypassed, so a default run offers only --enable dialog,
+    and a run that passed --enable dialog gets no --disable row either: both
+    flags at once is an error, and the undo is dropping --enable."""
+    silence_console(console)
+    messages.print_troubleshooting([], {"dialog-active": {"default"}},
+                                   enabled_by_flag=frozenset({"dialog"}))
+    out = " ".join(capsys.readouterr().out.split())
+    assert "--disable dialog" not in out
+    assert "--enable dialog" not in out
+
+
+def test_dialog_ships_bypassed_unless_enabled():
+    preset, emitted = _build()
+    assert preset["output"]["equalizer#1"]["bypass"] is True
+    assert "dialog" in emitted and "dialog-active" not in emitted
+    preset, emitted = _build(enabled={"dialog"})
+    assert preset["output"]["equalizer#1"]["bypass"] is False
+    assert "dialog-active" in emitted and "dialog" not in emitted
 
 
 def test_regulator_stays_on_the_menu_without_the_inert_hint(silence_console,

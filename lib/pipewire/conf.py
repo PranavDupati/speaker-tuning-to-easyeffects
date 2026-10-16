@@ -143,7 +143,8 @@ def build_chain(preset: dict, irs_dir: Path,
             # Surface bypass-skip uniformly so users notice if their EE
             # bypassed-plugin choice silently disappeared. The exception is
             # silent_if_bypassed, which marks bypass as the expected default
-            # (autogain on HDA), where nagging would be noise.
+            # (autogain on HDA, the dialog enhancer), where nagging would be
+            # noise.
             if not handler.silent_if_bypassed:
                 warn(f"{key}: bypassed in source preset; not emitted.")
             continue

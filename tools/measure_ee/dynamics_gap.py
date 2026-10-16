@@ -182,8 +182,8 @@ def ee_chain_mag_db(tuning, freqs_probe):
     peq = bands.make_peq_eq([pf for pf in tuning.peq_filters if pf["speaker"] == 0])
     peq_out_gain = peq["output-gain"] if peq else 0.0
     peq_bands = list(peq["left"].values()) if peq else []
-    # dialog enhancer (HDA path) — broad +gain @ 2.5 kHz
-    de = plugins.make_dialog_enhancer(tuning.dialog_enhancer, is_soundwire=False)
+    # dialog enhancer — broad +gain @ 2.5 kHz, as the captured presets ran it
+    de = plugins.make_dialog_enhancer(tuning.dialog_enhancer, enabled=True)
     de_bands = list(de["left"].values()) if de else []
     out = {}
     for fr in freqs_probe:

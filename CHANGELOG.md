@@ -89,6 +89,15 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Changed
+
+- **[AUDIBLE]** Slightly less voice presence, and less over-emphasis on music
+  such as piano, as heard on one device: the dialog enhancer's fixed 2.5 kHz
+  boost now ships off, because Windows was measured boosting voices only while
+  someone speaks. `--enable dialog` turns it back on.
+  ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137);
+  why in `docs/research/adaptive-processing.md`)
+
 ### Added
 
 - Mark additional tested devices: ThinkPad P53 (20QQ)

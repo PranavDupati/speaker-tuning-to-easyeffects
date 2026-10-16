@@ -1030,10 +1030,12 @@ def test_every_active_plugin_emits_or_warns(tmp_path):
         chain = build_chain(preset, tmp_path, must_exist=False)
         emitted_names = {n["name"] for s in chain.stages for n in s.nodes}
         for key in preset["output"]["plugins_order"]:
-            if key == "autogain#0" and preset["output"][key].get("bypass"):
-                # Bypassed autogain on HDA is the expected default — the
-                # converter may skip it silently (silent_if_bypassed).
-                # Active autogain falls through and must emit.
+            handler = EE_KEY_DISPATCH.get(key)
+            if (handler is not None and handler.silent_if_bypassed
+                    and preset["output"][key].get("bypass")):
+                # Bypass is the expected default for these (autogain on HDA,
+                # the dialog enhancer): the converter skips them silently.
+                # Active ones fall through and must emit.
                 continue
             if key not in EE_KEY_DISPATCH:
                 assert any(key in w for w in chain.warnings), \
@@ -1657,6 +1659,23 @@ def test_bypassed_autogain_silent_skip():
     names = {n["name"] for s in chain.stages for n in s.nodes}
     assert "autogain" not in names
     assert not any("autogain" in w for w in chain.warnings)
+
+
+def test_bypassed_dialog_silent_skip():
+    """The dialog enhancer ships bypassed unless --enable dialog, so a
+    default preset must drop it with neither a node nor a warning; on 82% of
+    corpus devices a warning would print on every default build."""
+    preset = {
+        "output": {
+            "plugins_order": ["equalizer#1", "limiter#0"],
+            "equalizer#1": {"bypass": True},
+            "limiter#0": {"bypass": False},
+        }
+    }
+    chain = build_chain(preset, irs_dir=None, must_exist=False)
+    names = {n["name"] for s in chain.stages for n in s.nodes}
+    assert "dialog" not in names
+    assert not any("equalizer#1" in w for w in chain.warnings)
 
 
 def test_active_autogain_is_translated():

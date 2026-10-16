@@ -30,7 +30,7 @@ it.
 | `coupled-bands` | The loudest moments feel clamped or lose impact. Drops the zones the tuning leaves at full scale but marks non-isolated. **Not yet validated by ear**: see the note below. |
 | `autogain` | Loudness pumping tied to the content: quiet passages swell, then duck when things get loud. Drops the volume leveler, which runs by default only on SoundWire speakers. |
 | `bass-enhancer` | Bass sounds artificial or distorted on SoundWire devices. Only emitted for SoundWire speakers. |
-| `dialog` | Vocals feel over-boosted or harsh in the presence region. Drops the 2.5 kHz speech-band EQ. |
+| `dialog` | Nothing by default: the 2.5 kHz speech-band EQ ships switched off. This drops it from the preset entirely, so it can't be switched on in EasyEffects either. To undo `--enable dialog`, leave that flag out instead. |
 | `high-shelf` | Harsh or sibilant high frequencies on devices whose tuning includes a type-3 shelf. **Experimental** path: see the note below. |
 | `lo-pass` | Highs sound rolled off or dull on devices whose tuning includes a type-6/8 low-pass. **Experimental**, with the same caveat as the `high-shelf` note below. |
 | `vendor-apo` | The overall balance of bass, mids and treble sounds off, and the run reports "Vendor speaker tuning: … applied". Drops the speaker tuning the vendor ships beside the Dolby file. See the note below. |
@@ -67,6 +67,7 @@ Some filters ship in the preset but inactive. `--enable NAME` switches them on:
 | `autogain` | The preset sounds right but noticeably quieter than Windows. Turns on the volume leveler. See [Troubleshooting: correct but too quiet](troubleshooting.md#troubleshooting-correct-but-too-quiet). |
 | `level-restore` | The preset is quieter than with it switched off entirely, and thin with it. **Experimental**: see the note below. |
 | `virtual-bass` | Bass feels thinner than it did on Windows, on HDA internal speakers. You need `dolby_to_pipewire.py` to hear it. **Experimental**: measured close to DAX on one device. |
+| `dialog` | Voices are hard to follow over music or effects. Turns on a fixed speech-band boost at 2.5 kHz, which also lifts music. See the note below. |
 | `vendor-apo` | Nothing today: Surface's tuning, the one vendor format read, is on by default. |
 
 - **`level-restore`.** The impulse response is normalised so its loudest band
@@ -83,6 +84,12 @@ Some filters ship in the preset but inactive. `--enable NAME` switches them on:
   that stage. EasyEffects itself can't express it, so the EE preset's audio is
   unchanged. Report what you hear on
   [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14).
+- **`dialog`.** Windows boosts voices only while someone is speaking, and
+  more when speech competes with a background, as measured on one device. An
+  EasyEffects preset can't tell speech from music, so the boost ships off. This
+  flag turns on a fixed boost sized for speech over a background at the most
+  common setting, which also lifts music
+  ([research](research/adaptive-processing.md#r-dialog-enhancer-speech-gating)).
 
 Convolver, PEQ, and the final brickwall limiter can't be toggled from the CLI.
 They're the FIR correction, speaker PEQ, and safety net.

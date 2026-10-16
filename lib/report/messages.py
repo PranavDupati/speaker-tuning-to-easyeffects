@@ -72,6 +72,9 @@ DISABLEABLE_FILTERS = {
                  "drops the volume leveler"),
     "bass-enhancer": ("bass sounds artificial or buzzy",
                       "drops the harmonic bass generator"),
+    # Never rendered since the stage ships bypassed: the -active marker
+    # keeps the row off default runs, and a run that passed --enable dialog
+    # gets no --disable row. Kept so `--disable dialog` still parses.
     "dialog": ("voices are too forward or shouty",
                "drops the 2.5 kHz speech-band EQ"),
     "high-shelf": ("cymbals and 's' sounds are piercing",
@@ -98,8 +101,13 @@ DISABLEABLE_FILTERS = {
 # 979 devices).
 # vendor-apo is in both menus like autogain: a format on by default (Surface)
 # is a --disable candidate, an opt-in one an --enable candidate.
+# dialog stays a --disable name so older command lines keep parsing and can
+# still drop the stage outright. It ships bypassed, so the -active marker
+# keeps its row off default runs, and the --enable rule in
+# print_troubleshooting keeps it off runs that passed --enable dialog.
 _DISABLE_MENU_MARKER = {"autogain": "autogain-active",
                         "coupled-bands": "coupled-bands-active",
+                        "dialog": "dialog-active",
                         "vendor-apo": "vendor-apo-active"}
 
 # Mirror of DISABLEABLE_FILTERS for stages that ship present but inactive:
@@ -144,6 +152,13 @@ ENABLEABLE_FILTERS = {
     "virtual-bass": ("bass feels thinner than it did on Windows",
                      "experimental; only the PipeWire chain plays it "
                      "(issue #14)"),
+    # The trigger is the situation Dolby's DE measured largest in: speech
+    # over a background (+2 dB, research `r-dialog-enhancer-speech-gating`).
+    # The caveat names the one thing a static bell gets wrong: Windows
+    # boosts only while someone speaks, we boost everything. "music
+    # included" is the caveat's one wording across the run.
+    "dialog": ("voices are hard to follow over music or effects",
+               "boosts the speech band, music included (issue #137)"),
     # Offered only where a vendor APO config binds the device
     # (lib/apo/discover.py) and its format is opt-in, so the trigger can name
     # what it adds. Surface's is on by default, and there the name is a
