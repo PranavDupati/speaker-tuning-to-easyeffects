@@ -56,14 +56,20 @@ directory, then the script directory.
 | `stimulus_speech_human.wav` | −18 dBFS RMS over active segments | a recording of a real reader, centred: the dialog-enhancer probe for a classifier that ignores synthetic speech. Built only with `--speech-source WAV` |
 | `stimulus_speech_over_bed.wav` | bed 10 dB below the −18 speech target | the same speech over an independent pink bed per channel, so the side signal is bed only: shows whether a boost reaches the whole signal, and any ducking |
 | `stimulus_speech_then_pink.wav` | −18 dBFS RMS | 20 s of the speech, then 20 s of pink: shows how long a speech-gated boost holds |
+| `stimulus_pink_then_speech.wav` | −18 dBFS RMS | the reverse, 20 s of pink then 20 s of speech: shows how fast an adaptive EQ follows a change of content |
+| `stimulus_pink_steps.wav` | −18, −30, −18 dBFS RMS, 30 s each | one pink stream stepping in level with the spectrum fixed: shows whether the IEQ tracks level, and how fast after a drop and a rise |
+| `stimulus_pink_bump_2250.wav` | −18 dBFS RMS | pink with a +9 dB, ~0.4-octave bump at 2.25 kHz: shows how wide the IEQ's correction of one spectral feature is |
 
-- **`--speech-source WAV`.** The three human-speech probes need a recording;
+- **`--speech-source WAV`.** The four human-speech probes need a recording;
   none ships in the repo. `--speech-source librivox` downloads the public-domain
   reading the dev device was captured with, checks it against a pinned SHA-256
   and cuts the same 40 s with ffmpeg. Each sidecar records the file name and
-  SHA-256. `--speech-only` builds just those three. They run 40 s because the
+  SHA-256. `--speech-only` builds just those four. They run 40 s because the
   classifier's ramp and hold times are unmeasured; analyse them in short
   windows, and a plateau well before the end shows the length was enough.
+
+- **`--ieq-only`.** Builds just `pink_steps` and `pink_bump_2250`, plus
+  `pink_then_speech` when `--speech-source` is given.
 
 - **`stimulus_pink{60,48,30,24,14}.wav`.** −14 is the loud end pink can reach
   without clipping, given its ~13 dB crest factor. Use

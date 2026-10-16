@@ -33,6 +33,11 @@ matching `.json` sidecar:
     stimulus_speech_over_bed     centred speech over an independent pink bed
                                  per channel, 10 dB down (side = bed only)
     stimulus_speech_then_pink    20 s speech, then 20 s pink at the same level
+    stimulus_pink_then_speech    the reverse: 20 s pink, then 20 s speech
+
+  IEQ timing and bandwidth probes (also alone with --ieq-only):
+    stimulus_pink_steps          one pink stream at -18, -30, -18 dBFS, 30 s each
+    stimulus_pink_bump_2250      pink with a +9 dB, ~0.4-octave bump at 2.25 kHz
 
 The non-LTI dynamics (compressor, regulator, brickwall) only engage on
 the loud bass_burst / stepped_loud variants; the LTI battery leaves them
@@ -193,6 +198,106 @@ def make_pink(level_dbfs_rms: float, seed: int = 0
         # transient at the start; analyze the last ~5 s of the stationary part.
         "analysis_window_start_seconds": 6.0,
         "analysis_window_end_seconds": 11.0,
+    }
+    return stereo, meta
+
+
+# Level steps and a spectral bump, both for DAX's IEQ (research
+# `r-ieq-adapts-to-content`). The steps change level with the spectrum fixed:
+# an IEQ that tracks spectral shape should not move, and a fast-rise /
+# slow-fall level tracker would show slow adaptation after the drop and fast
+# after the rise. The bump reads how wide the IEQ's correction is around one
+# spectral feature.
+PINK_STEPS_DBFS = (-18.0, -30.0, -18.0)
+PINK_STEP_S = 30.0
+PINK_STEP_RAMP_MS = 50.0
+PINK_BUMP_HZ = 2250.0
+PINK_BUMP_DB = 9.0
+PINK_BUMP_SIGMA_OCT = 1.0 / 6.0   # Gaussian in log-frequency, ~0.4 oct FWHM
+PINK_BUMP_T = 20.0
+
+
+def make_pink_steps(levels_dbfs: tuple = PINK_STEPS_DBFS,
+                    step_s: float = PINK_STEP_S, seed: int = 0
+                    ) -> tuple[np.ndarray, dict]:
+    """One continuous pink stream whose level steps between segments.
+
+    Each level is the gain on unit-RMS pink, as in make_pink."""
+    n_step = int(round(step_s * SR))
+    pink = _pink_noise(n_step * len(levels_dbfs), seed=seed)
+    gain = np.concatenate([np.full(n_step, 10 ** (lv / 20.0)) for lv in levels_dbfs])
+    ramp_n = int(round(PINK_STEP_RAMP_MS * 1e-3 * SR))
+    if ramp_n > 1:   # short linear ramps at each step, so no click
+        kernel = np.ones(ramp_n) / ramp_n
+        gain = np.convolve(gain, kernel, mode="same")
+    mono = pink * gain
+    fade_n = int(round(STEADY_FADE_MS * 1e-3 * SR))
+    fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_n) / fade_n))
+    mono[:fade_n] *= fade
+    mono[-fade_n:] *= fade[::-1]
+    tail = np.zeros(int(round(STEADY_TAIL * SR)))
+    mono = np.concatenate([mono, tail])
+    peak = float(np.max(np.abs(mono)))
+    if peak >= 1.0:
+        mono *= (10 ** (-0.5 / 20.0)) / peak
+    stereo = np.column_stack([mono, mono]).astype(np.float32)
+    meta = {
+        "kind": "pink_steps",
+        "sample_rate": SR,
+        "duration_seconds": stereo.shape[0] / SR,
+        "tail_seconds": STEADY_TAIL,
+        "segments": [[i * step_s, (i + 1) * step_s, lv]
+                     for i, lv in enumerate(levels_dbfs)],
+        "ramp_ms": PINK_STEP_RAMP_MS,
+        "seed": seed,
+        "stimulus_samples": int(stereo.shape[0]),
+        "format": "float32 stereo L=R",
+        "stereo_mode": "symmetric",
+    }
+    return stereo, meta
+
+
+def make_pink_bump(level_dbfs_rms: float = -18.0, bump_hz: float = PINK_BUMP_HZ,
+                   bump_db: float = PINK_BUMP_DB,
+                   sigma_oct: float = PINK_BUMP_SIGMA_OCT,
+                   duration_s: float = PINK_BUMP_T, seed: int = 0
+                   ) -> tuple[np.ndarray, dict]:
+    """Pink with a Gaussian (log-frequency) bump of bump_db at bump_hz."""
+    n = int(round(duration_s * SR))
+    pink = _pink_noise(n, seed=seed)
+    spec = np.fft.rfft(pink)
+    f = np.fft.rfftfreq(n, 1.0 / SR)
+    octs = np.zeros_like(f)
+    octs[1:] = np.log2(f[1:] / bump_hz)
+    shape_db = bump_db * np.exp(-0.5 * (octs / sigma_oct) ** 2)
+    shape_db[0] = 0.0
+    mono = np.fft.irfft(spec * 10.0 ** (shape_db / 20.0), n)
+    rms = float(np.sqrt(np.mean(mono ** 2))) + 1e-30
+    mono *= 10.0 ** (level_dbfs_rms / 20.0) / rms
+    fade_n = int(round(STEADY_FADE_MS * 1e-3 * SR))
+    fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_n) / fade_n))
+    mono[:fade_n] *= fade
+    mono[-fade_n:] *= fade[::-1]
+    mono = np.concatenate([mono, np.zeros(int(round(STEADY_TAIL * SR)))])
+    peak = float(np.max(np.abs(mono)))
+    if peak >= 1.0:
+        mono *= (10 ** (-0.5 / 20.0)) / peak
+    stereo = np.column_stack([mono, mono]).astype(np.float32)
+    meta = {
+        "kind": "pink_bump",
+        "sample_rate": SR,
+        "duration_seconds": stereo.shape[0] / SR,
+        "tail_seconds": STEADY_TAIL,
+        "level_dbfs_rms": level_dbfs_rms,
+        "bump_hz": bump_hz,
+        "bump_db": bump_db,
+        "bump_sigma_octaves": sigma_oct,
+        "seed": seed,
+        "analysis_window_start_seconds": 10.0,
+        "analysis_window_end_seconds": duration_s - 1.0,
+        "stimulus_samples": int(stereo.shape[0]),
+        "format": "float32 stereo L=R",
+        "stereo_mode": "symmetric",
     }
     return stereo, meta
 
@@ -822,6 +927,33 @@ def make_speech_then_pink(clip: np.ndarray, provenance: dict,
     return stereo, meta
 
 
+def make_pink_then_speech(clip: np.ndarray, provenance: dict,
+                          level_dbfs_rms: float = -18.0
+                          ) -> tuple[np.ndarray, dict]:
+    """20 s of centred pink, then 20 s of centred speech: the reverse of
+    make_speech_then_pink, where the IEQ's level tracking should show the
+    opposite asymmetry (research `r-ieq-adapts-to-content`)."""
+    n_split = int(round(SPEECH_THEN_PINK_SPLIT_S * SR))
+    n_total = int(round(HUMAN_SPEECH_T * SR))
+    pink = _pink_noise(n_split, seed=0) * 10.0 ** (level_dbfs_rms / 20.0)
+    fade_n = int(round(SPEECH_FADE_MS * 1e-3 * SR))
+    fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_n) / fade_n))
+    pink[:fade_n] *= fade
+    pink[-fade_n:] *= fade[::-1]
+    speech = _finish_speech(_tile_speech(clip, n_total - n_split), level_dbfs_rms)
+    mono = np.concatenate([pink, speech, np.zeros(int(round(STEADY_TAIL * SR)))])
+    peak = float(np.max(np.abs(mono)))
+    headroom = 10.0 ** (-1.0 / 20.0)
+    if peak > headroom:
+        mono *= headroom / peak
+    stereo = np.column_stack([mono, mono]).astype(np.float32)
+    meta = _human_speech_meta("pink_then_speech", stereo, provenance,
+                              level_dbfs_rms, "symmetric", speech)
+    meta.update(pink_seconds=[0.0, SPEECH_THEN_PINK_SPLIT_S],
+                speech_seconds=[SPEECH_THEN_PINK_SPLIT_S, HUMAN_SPEECH_T])
+    return stereo, meta
+
+
 # ----- stepped sine (per-frequency, multi-pass: static EQ vs adaptive) -----
 
 # Probe grid: every Dolby band centre plus the geometric midpoint between each
@@ -952,7 +1084,16 @@ def write_stimulus(name: str, stereo: np.ndarray, meta: dict,
 PINK_LADDER_DBFS = (-60, -48, -30, -24, -14)
 
 
-def _human_speech_suite(source: str) -> None:
+def _ieq_suite() -> None:
+    """The IEQ timing and bandwidth probes (research `r-ieq-adapts-to-content`)."""
+    stereo, meta = make_pink_steps()
+    write_stimulus("stimulus_pink_steps", stereo, meta)
+    stereo, meta = make_pink_bump()
+    write_stimulus(f"stimulus_pink_bump_{int(PINK_BUMP_HZ)}", stereo, meta)
+
+
+def _speech_clip(source: str) -> tuple[np.ndarray, dict]:
+    """The speech recording for the human-speech probes, with provenance."""
     extra = {}
     if source == "librivox":
         path, extra = fetch_librivox_clip(OUT_DIR)
@@ -960,9 +1101,15 @@ def _human_speech_suite(source: str) -> None:
         path = Path(source)
     clip, provenance = load_speech_source(path)
     provenance.update(extra)
+    return clip, provenance
+
+
+def _human_speech_suite(source: str) -> None:
+    clip, provenance = _speech_clip(source)
     for name, build in (("stimulus_speech_human", make_speech_human),
                         ("stimulus_speech_over_bed", make_speech_over_bed),
-                        ("stimulus_speech_then_pink", make_speech_then_pink)):
+                        ("stimulus_speech_then_pink", make_speech_then_pink),
+                        ("stimulus_pink_then_speech", make_pink_then_speech)):
         stereo, meta = build(clip, provenance)
         write_stimulus(name, stereo, meta)
 
@@ -975,16 +1122,29 @@ def main(argv: list[str] | None = None) -> None:
                     help="a recording of a real reader, or 'librivox' to "
                          "download and cut the public-domain clip the dev "
                          "device used (needs ffmpeg); also builds the "
-                         "speech_human, speech_over_bed and speech_then_pink "
+                         "speech_human, speech_over_bed, speech_then_pink and "
+                         "pink_then_speech "
                          "dialog-enhancer probes from it")
     ap.add_argument("--speech-only", action="store_true",
-                    help="build only the three --speech-source probes")
+                    help="build only the four --speech-source probes")
+    ap.add_argument("--ieq-only", action="store_true",
+                    help="build only the IEQ probes: pink_steps and "
+                         "pink_bump_2250, plus pink_then_speech with "
+                         "--speech-source")
     args = ap.parse_args(argv)
     if args.speech_only and args.speech_source is None:
         ap.error("--speech-only needs --speech-source")
     if args.speech_only:
         print("Building human-speech probes:")
         _human_speech_suite(args.speech_source)
+        return
+    if args.ieq_only:
+        print("Building IEQ probes:")
+        _ieq_suite()
+        if args.speech_source is not None:
+            clip, provenance = _speech_clip(args.speech_source)
+            stereo, meta = make_pink_then_speech(clip, provenance)
+            write_stimulus("stimulus_pink_then_speech", stereo, meta)
         return
 
     print("Building stimulus suite:")
@@ -1068,6 +1228,8 @@ def main(argv: list[str] | None = None) -> None:
                 "(make_pink rescaled it for headroom). Pick a quieter rung, "
                 "or use stimulus_stepped_loud for the loud end.")
         write_stimulus(f"stimulus_pink{abs(level):02d}", stereo, meta)
+
+    _ieq_suite()
 
     # stepped sine, MBC-waking level. The dev-device XML decodes both MBC
     # band thresholds to ≈ −6.4 dBFS (see research `r-dynamics-dormancy`: the

@@ -163,7 +163,7 @@ def test_help_writes_no_stimuli(tmp_path, monkeypatch, capsys):
     assert not any(tmp_path.iterdir())
 
 
-def test_speech_only_builds_just_the_three_probes(tmp_path, monkeypatch):
+def test_speech_only_builds_just_the_four_probes(tmp_path, monkeypatch):
     clip, _ = _fake_recording()
     src = tmp_path / "src.wav"
     wavfile.write(str(src), ms.SR, clip.astype(np.float32))
@@ -172,8 +172,64 @@ def test_speech_only_builds_just_the_three_probes(tmp_path, monkeypatch):
     monkeypatch.setattr(ms, "OUT_DIR", out)
     ms.main(["--speech-source", str(src), "--speech-only"])
     assert sorted(p.name for p in out.glob("*.wav")) == [
-        "stimulus_speech_human.wav", "stimulus_speech_over_bed.wav",
-        "stimulus_speech_then_pink.wav"]
+        "stimulus_pink_then_speech.wav", "stimulus_speech_human.wav",
+        "stimulus_speech_over_bed.wav", "stimulus_speech_then_pink.wav"]
+
+
+def test_pink_then_speech_switches_at_the_split():
+    clip, prov = _fake_recording()
+    stereo, meta = ms.make_pink_then_speech(clip, prov)
+    mono = stereo[:, 0].astype(np.float64)
+    assert np.array_equal(stereo[:, 0], stereo[:, 1])
+    split = int(ms.SPEECH_THEN_PINK_SPLIT_S * ms.SR)
+    pink = mono[ms.SR // 10:split - ms.SR // 10]
+    assert 20 * np.log10(np.sqrt(np.mean(pink ** 2))) == pytest.approx(-18.0, abs=0.5)
+    speech = mono[split:int(ms.HUMAN_SPEECH_T * ms.SR)]
+    assert _active_rms_db(speech) == pytest.approx(-18.0, abs=1.0)
+    assert meta["speech_seconds"] == [ms.SPEECH_THEN_PINK_SPLIT_S, ms.HUMAN_SPEECH_T]
+
+
+# ----- IEQ probes (`r-ieq-adapts-to-content`) -----
+
+BAND_HZ = [250, 500, 1000, 1500, 2000, 2250, 2500, 3000, 4000, 6000, 8000]
+
+
+def analyze_bands(x: np.ndarray) -> np.ndarray:
+    """Power in a sixth-octave band around each BAND_HZ, in dB."""
+    from scipy.signal import welch
+    f, p = welch(np.asarray(x, np.float64), fs=ms.SR, nperseg=8192)
+    return np.array([10 * np.log10(np.sum(p[(f > c * 2 ** -(1 / 12))
+                                             & (f < c * 2 ** (1 / 12))]))
+                     for c in BAND_HZ])
+
+
+def test_pink_steps_hold_each_level_with_one_spectrum():
+    stereo, meta = ms.make_pink_steps()
+    mono = stereo[:, 0].astype(np.float64)
+    guard = ms.SR // 2   # clear of the ramps and the fades
+    bands = [analyze_bands(mono[int(start * ms.SR) + guard:
+                                int(end * ms.SR) - guard])
+             for start, end, _ in meta["segments"]]
+    # Segment RMS drifts with the infrasonic part of the pink, so compare
+    # audible bands. Every band steps by the level difference: the spectrum
+    # stays put and only the level can move an adaptive EQ.
+    levels = [lv for _, _, lv in meta["segments"]]
+    for b, lv in zip(bands[1:], levels[1:]):
+        assert np.max(np.abs(b - bands[0] - (lv - levels[0]))) < 0.5
+
+
+def test_pink_bump_peaks_at_its_centre_and_spares_far_bands():
+    bumped, meta = ms.make_pink_bump()
+    # The same noise without the bump, so the difference is the bump alone.
+    plain = ms._pink_noise(int(round(ms.PINK_BUMP_T * ms.SR)), seed=0)
+    a = slice(int(meta["analysis_window_start_seconds"] * ms.SR),
+              int(meta["analysis_window_end_seconds"] * ms.SR))
+    db = analyze_bands(bumped[a, 0]) - analyze_bands(plain[a])
+    db -= np.median(db)   # level renormalisation shifts every band equally
+    f = np.array(BAND_HZ)
+    at = int(np.argmin(np.abs(f - ms.PINK_BUMP_HZ)))
+    assert db[at] == pytest.approx(ms.PINK_BUMP_DB, abs=1.0)
+    assert np.all(np.abs(db[(f < 1000) | (f > 5000)]) < 1.0)
 
 
 # ----- loud stepped sine (`r-mbc-ratio-time-constants`,
