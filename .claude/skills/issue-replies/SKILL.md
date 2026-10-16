@@ -6,34 +6,34 @@ description: >-
   a new device report, a bug report), including in plan mode, because it
   shapes what the investigation must produce. Load it again before drafting
   any issue or PR reply or running `gh issue comment` / `gh pr comment`.
-  Covers structure and tone, what may be asserted versus framed as a
-  hypothesis, citation and link rules, runnable experiments, and the
-  standard device-report triage asks.
+  Covers writing plain replies a reporter can follow top to bottom, what may
+  be asserted versus framed as a hypothesis, copy-paste asks with an expected
+  result, citation and link rules, the manufacturer spec lookup,
+  and the standard device-report triage asks.
 ---
 
 # Triaging issues & drafting GitHub replies
 
-The assertion bar, the triage asks and the experiment design below shape the
+The assertion bar, the asks design and the triage asks below shape the
 investigation, so validate cheap claims while investigating.
 
-Draft each reply for review first. Post it with `gh` only when explicitly told
-to ("post it"), because the user often posts themselves. To post: commit,
-push, confirm the push is on the remote, then post. End the reply with the
-footer `🤖 Generated with [Claude Code](https://claude.com/claude-code)`, as
-commits end with `Co-Authored-By`.
+## Process
 
-## Structure and tone
-
-- Keep it light. The body carries only what we want confirmed and the asks,
-  and every explanatory "why" goes to a footnote. When there is a ladder of
-  possible steps, cut to the single highest-value ask.
-- Write in the first person ("I removed…", "helps me"). Be warm and
-  credit-forward: thank the reporter and attribute fixes to their report.
-- Put heavy optional instructions, such as captures or multi-step
-  experiments, in a collapsed `<details>` block. Offer a minimal quick option
-  alongside the full one.
-- Make symptom counts match the structure: a reply that says "three things"
-  has exactly three numbered sections.
+- Draft the reply as a file in `localresearch/issue<N>/reply-<k>.md`. Run the
+  checklist under "Review the draft before showing it", then show it for
+  review.
+- Re-read the thread with `gh issue view N --comments` before drafting and
+  again before posting (`gh pr view N --comments` for a PR). The user often
+  replies too, and reporters' messages cross ours, so build on what is there
+  and never repeat it.
+- Post with `gh` only when explicitly told to ("post it"), because the user
+  often posts themselves. Re-read the draft file first, because the user
+  edits it.
+- To post: if the reply cites unpushed commits, get push permission, push,
+  and confirm the push is on the remote. Then post.
+- End the reply with the footer
+  `🤖 Generated with [Claude Code](https://claude.com/claude-code)`, as
+  commits end with `Co-Authored-By`.
 
 ## Assert only what you validated
 
@@ -46,42 +46,18 @@ commits end with `Co-Authored-By`.
   driver-package spelunking must never override the reporter's own observed
   evidence. In #29, "your model ships Realtek/Cirrus, not Dolby" contradicted
   the Dolby XML their run had auto-detected.
+- Cite past research at the strength it reached. Before leaning on a finding,
+  read what its research doc concluded: validated, or measured on one device
+  and left inconclusive.
+- Check every statement about how a test behaves against the script that runs
+  it, such as whether volume matters for a capture.
+- Check `docs/reference.md` and `docs/cross-device-findings.md` before
+  asking for anything, and never ask for what is already established.
 - Verify issue numbers against the tracker with `gh issue list` before
   attributing a limitation or observation to one.
 - For a speculative or optional ask, say plainly that the odds are low. Make
   the risk concrete and cited, not "might be risky". Lead with the most
   promising concrete path.
-
-## Let GitHub do the wrapping
-
-Write each paragraph as **one long line**, with no hand-wrapping at 72/80
-columns. GitHub reflows prose to the reader's window, so hard breaks buy
-nothing and cost on every later edit: a one-word change reflows the whole
-block, and the diff hides the actual edit. Fenced code blocks are the
-exception. GitHub renders them verbatim, so break them exactly as they should
-be run.
-
-## Citations must be clickable for the reader
-
-- Cite this repo's commits by full unquoted SHA, which GitHub auto-links.
-  Backticks suppress the link, and a short SHA can be ambiguous. When telling
-  a reporter a fix landed, confirm it is pushed, then cite the fix commit.
-- Give anything outside this repo, such as kernel commits or other projects'
-  files and trees, an explicit markdown URL, since it auto-links nowhere.
-  Prefer mirrors that open without auth or anti-bot walls:
-  `github.com/torvalds/linux` commit URLs over `git.kernel.org`, which blocks
-  anonymous fetches.
-
-## Make experiments runnable and validating
-
-- Give copy-pasteable commands, each with its revert step, not descriptions
-  of what to change. For example,
-  `pw-metadata -n settings 0 clock.force-quantum 1024` is reverted with the
-  value `0`.
-- Design the ask so the reporter exercises the code path you need validated.
-  Mention an easier workaround only as a failover, or the shortcut is what
-  gets tested. In #33, autoload came first and the direct file path was the
-  fallback.
 
 ## Look up the manufacturer's audio spec before theorising
 
@@ -121,6 +97,93 @@ spec refuted in one pass.
 - Other OEMs: find the official spec page. If it doesn't name drivers, record
   the count as *unknown* rather than inferring one.
 
+## Write for the reporter
+
+A reply is read once, by someone who wants to know what happened and what to
+do next. It should never read like a research paper. Write the shortest reply
+that gets them there, then cut again: a first draft runs long, and the
+sentences that go first are the ones listed below.
+
+- Lead with what is new. Every sentence must help the reporter act or
+  understand their result. Cut the rest:
+  - pleasantries that carry nothing, such as "Glad it works", "no obligation
+    at all" or "a short yes or no is plenty";
+  - a verdict on them such as "you were right": state the mechanism instead;
+  - how we found or checked a fact, such as which containers we tested, which
+    package version we read, or where we found a file they attached;
+  - their own results replayed back to them, when the conclusion is what they
+    need;
+  - an explanation already given in an earlier comment: refer back to it in
+    a clause instead of restating it;
+  - a side topic they didn't take up, or a fix that doesn't affect them.
+- Use plain words for what they will hear or see. Keep a number only where it
+  changes what they do or answers one they quoted, and drop tables of
+  internals such as per-zone thresholds or the chain order. "Our ears hear
+  bass differently at different volumes, so a volume difference alone can
+  sound like a bass difference" explains a result in terms they can check.
+- Match the register to the report. A technical report gets a technical
+  reply, in the same plain structure.
+- Shape: the @-mention, the result in a sentence or two, then the ask. With
+  several findings, give each a short bold label of a few words, not a bold
+  sentence. A short reply is plain paragraphs. Make counts match the
+  structure: a reply that says "three things" has exactly three sections.
+- Thank them at most once per reply, for what this round brought. Skip it
+  when the previous comment already thanked them for the same thing.
+- Write in the first person ("I removed…", "helps me"). Be warm and
+  credit-forward: attribute fixes to their report. Own the tool's bugs that
+  hit their run in a sentence each.
+- Put everything inline. Never use `<details>`.
+- Use no footnotes by default. Keep one only for evidence worth keeping
+  available that would break the body's flow, such as the source XML's name
+  or the measurement behind a claim. What to do, what to listen for and why
+  an ask matters always go inline.
+
+## Make asks runnable and self-checkable
+
+- Ask only for what changes our next step. A works report whose fixes have
+  shipped needs no ask. While nothing works yet, ask for the single
+  highest-value test. Once a fix exists, send every remaining ask in one
+  reply, because each round trip costs the reporter a session.
+- Number the steps they perform, gate later ones on earlier outcomes, and
+  mark optional ones. Add nothing the plan didn't call for, such as an extra
+  flag, package or check.
+- Give copy-pasteable commands, not descriptions of what to change. Write one
+  command per line, with no shell variables, loops, `&&` chains or clever
+  quoting. Fenced blocks run exactly as written.
+- Assume a reporter who takes on a capture can handle the basics, such as
+  installing Python, opening a terminal in a folder or copying files to
+  another machine. Name the prerequisite in a clause and leave the how to
+  them, since they can ask: "With Python 3 installed, open PowerShell in the
+  `to-windows` folder".
+- Where a menu or button does the job, such as picking or deleting a preset
+  in EasyEffects, name the menu path instead of writing a command.
+- Start where their last run started: "from the folder you ran
+  `dolby_to_easyeffects.py` in". Never invent their paths or folder layout,
+  including the clone's folder name and config paths that differ between
+  distro and Flatpak installs. A folder the ask itself creates is fine to
+  name. Drop any argument their run auto-detected.
+- Walk the ask as the reporter, on their setup, at the build they will run.
+  Every step the tool needs must be there, such as `--force` over an
+  installed conf or reloading the preset in EasyEffects. Check each flag's
+  default at that build.
+- Have them check a setting before changing it: "Verify the speakers are set
+  to 48 kHz. If not, pick any 48000 Hz entry, and revert once done."
+- Give one go-back line for a change that persists, such as a rebuilt preset
+  or a removed package. Leave out cleanup of throwaway files. A toggle that
+  would leave their sound broken, such as EasyEffects bypass, gets its line.
+- Give each ask its expected result, on screen or by ear. For on-screen
+  results, quote the exact string the script prints, checked in the source.
+  Name the outcomes that change what we do next, and for anything else ask
+  them to paste the output. A setup or restore step needs no result line. If
+  something they will see reads ambiguously, fix it in the code before
+  asking.
+- Design the ask so the reporter exercises the code path you need validated.
+  Mention an easier workaround only as a failover, or the shortcut is what
+  gets tested. In #33, autoload came first and the direct file path was the
+  fallback.
+- When a bug reporter has already worked around the bug, ask them to put the
+  failing state back temporarily, so the fix is tested on the real failure.
+
 ## Device-report triage asks
 
 - If the reporter dual-boots, ask for a Windows A/B on the same content, with
@@ -148,3 +211,45 @@ spec refuted in one pass.
   the issue. A brief online check for the XML is fine and a hunt is not,
   because availability is OEM-dependent. Look in every audio download the OEM
   publishes for the model, and extract nested archives.
+
+## Formatting and citations
+
+- Write each paragraph as **one long line**, with no hand-wrapping. GitHub
+  reflows prose to the reader's window, and hard breaks make a one-word edit
+  reflow the whole block. Fenced code blocks render verbatim, so break them
+  exactly as they should be run. Indent a fenced block under a numbered step
+  by three spaces, or GitHub ends the list there.
+- Escape angle brackets outside backticks as `\<foo\>`, because a bare
+  `<foo>` renders as an invisible HTML tag.
+- Cite this repo's commits by full unquoted SHA, which GitHub auto-links.
+  Backticks suppress the link, and a short SHA can be ambiguous. When telling
+  a reporter a fix landed, confirm it is pushed, then cite the fix commit.
+- Link this repo's files by full URL,
+  `https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/blob/master/<path>`,
+  plus `#heading-anchor` where one exists. Relative paths don't link from a
+  comment.
+- Give anything outside this repo, such as kernel commits or other projects'
+  files and trees, an explicit markdown URL, since it auto-links nowhere.
+  Prefer mirrors that open without auth or anti-bot walls:
+  `github.com/torvalds/linux` commit URLs over `git.kernel.org`, which blocks
+  anonymous fetches.
+
+## Review the draft before showing it
+
+Check each line, and revise and re-check until all hold:
+
+- [ ] The thread is re-read, and nothing repeats what the user or the reporter
+  already said.
+- [ ] Every sentence helps the reporter act or understand their result, and
+  a second cutting pass removed nothing more.
+- [ ] No `<details>`, and at most one footnote, holding evidence only.
+- [ ] Every command copy-pastes as written from where their last run started,
+  and every lasting change has a go-back line.
+- [ ] Every ask says what result to expect, with on-screen strings checked
+  in the source, and no step the tool needs is missing.
+- [ ] No invented paths or folder names, and a menu step wherever a menu
+  does the job.
+- [ ] Every claim is validated this session or framed as a hypothesis, and
+  past research is cited at the strength it reached.
+- [ ] Cited SHAs are pushed, and every link is clickable.
+- [ ] The footer is present.
