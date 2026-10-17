@@ -2,8 +2,10 @@ name: Mark confirmed device as tested
 
 # Maintainer workflow: apply the "confirmed-working" label to a device-report
 # issue once you've confirmed it's a real, working report, and this opens a
-# PR adding the device to README.md's table and the CHANGELOG — a one-click
-# merge instead of a manual edit. See CLAUDE.md "Repo etiquette" and
+# PR — a one-click merge instead of a manual edit. A new device gets a row in
+# README.md's table and a CHANGELOG entry; a device the table already lists
+# gets this issue's link appended to its row and no CHANGELOG entry, since it
+# is not a newly tested device. See CLAUDE.md "Repo etiquette" and
 # .claude/rules/changelog.md for the format it follows.
 #
 # Security model: the trigger is maintainer-gated (the action verifies the
@@ -296,21 +298,46 @@ jobs:
             line carries anything else, stop and report `blocked` quoting the
             raw line, rather than escaping around it.
 
-            First, idempotency check — this label can be applied more than once:
-              - If the "Supported devices" table in README.md already lists this
-                device, OR an open pull request already adds it (search a
-                quote-free distinguishing token — the code in parentheses
-                where the name carries one (`20W1`, `82UF`, `FA507NV`,
-                `83J7`), or else the first distinctive
-                words of a prose `Product` (`Laptop 13 Pro`):
-                `gh pr list --state open --search 'in:title 20W1'`), then do
-                nothing: do not edit files, do not open a PR. Stop and report
-                outcome `already_covered`, naming the exact row or PR you
-                matched. Match on the model designation, not on a family
-                resemblance — "Yoga 7 16IAH7" and "Yoga 7 2-in-1 16AKP10" are
-                different machines and both belong in the table.
+            First, idempotency check — this label can be applied more than once.
+            Look for this device in the "Supported devices" table in README.md
+            and in open pull requests (search a quote-free distinguishing
+            token — the code in parentheses where the name carries one
+            (`20W1`, `82UF`, `FA507NV`, `83J7`), or else the first distinctive
+            words of a prose `Product` (`Laptop 13 Pro`):
+            `gh pr list --state open --search 'in:title 20W1'`). Match on the
+            model designation, not on a family resemblance — "Yoga 7 16IAH7"
+            and "Yoga 7 2-in-1 16AKP10" are different machines and both
+            belong in the table.
+              - If an open pull request already adds this device or links
+                this issue, OR the device's README row already links
+                #${{ github.event.issue.number }}, then do nothing: do not
+                edit files, do not open a PR. Stop and report outcome
+                `already_covered`, naming the exact row or PR you matched.
+              - If the README row exists but does not link
+                #${{ github.event.issue.number }}, follow EXISTING ROW below.
+              - Otherwise follow NEW ROW below.
 
-            Otherwise do exactly this, matching this repo's existing conventions:
+            EXISTING ROW — this is a second report for a listed device. Edit
+            only that row's second cell, appending
+            `, [#N](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/N)`
+            after its last entry. Leave the device cell, its codec comment and
+            every other row byte-for-byte as they are:
+              `| ThinkPad X1 Carbon Gen 10 (21CC) <!-- Realtek ALC287, 17AA:22E7 --> | [#99](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/99) |`
+              -> `| ThinkPad X1 Carbon Gen 10 (21CC) <!-- Realtek ALC287, 17AA:22E7 --> | [#99](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/99), [#139](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/139) |`
+              `| … | author |` -> `| … | author, [#N](…/issues/N) |`
+            Do NOT edit CHANGELOG.md: a device already in the table is not a
+            newly tested one. Run the pytest command from NEW ROW step 1 once
+            as a sanity check. The device name for the commit, the PR title
+            and the structured output is the row's name exactly as README
+            spells it (without the comment), not one re-derived from DMI.
+            Commit with `git add README.md` and the subject/title
+            `Add #${{ github.event.issue.number }} to the <device name> row`.
+            In the PR body, quote the README row you matched alongside the
+            `Vendor`/`Family`/`Product` lines, so a reviewer can check it is
+            the same machine. Skip the ThinkPad-letter, regional-name and
+            machine-type notes below: the row's name is already settled.
+
+            NEW ROW — do exactly this, matching this repo's existing conventions:
 
             1. Add one row to the "Supported devices" table in README.md
                (the `## Supported devices` section). The table has two
@@ -390,7 +417,9 @@ jobs:
             You are already checked out on a new branch,
             `${{ steps.branch.outputs.branch_name }}`, created off master.
             Do not create or switch branches, and push ONLY that branch — never
-            push to master or any other ref. Once the two files are edited:
+            push to master or any other ref. Once the files are edited (NEW
+            ROW shown; EXISTING ROW adds only README.md and uses its own
+            subject as both the commit message and the PR title):
 
               git add README.md CHANGELOG.md
               git commit -m 'Mark <device name> as tested (#${{ github.event.issue.number }})'
@@ -435,8 +464,10 @@ jobs:
               - outcome: "pr_created", "already_covered", or "blocked"
               - device: the device name you added, or the one you matched
               - pr_url: the URL `gh pr create` printed, or "" if there is none
-              - details: one or two sentences. For "already_covered", name the
-                row or PR you matched. For "blocked", say exactly what stopped
+              - details: one or two sentences. For "pr_created", say whether
+                you added a new row or appended to an existing one. For
+                "already_covered", name the row that already links this issue,
+                or the open PR you matched. For "blocked", say exactly what stopped
                 you — a denied command (quote it), missing information in the
                 issue, or an ambiguity you could not resolve.
             If anything blocks you, stop and report `blocked`; do not improvise
