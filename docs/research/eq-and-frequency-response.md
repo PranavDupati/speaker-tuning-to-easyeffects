@@ -26,7 +26,8 @@ Open:
 - How far our static IEQ is from DAX's off pink. Without MI steering, DAX's
   IEQ adapts to content on the dev device, about −2.7 dB in the low mids and
   +2 dB in the presence band on speech against pink, and on pink applies a
-  tilt several times our `amount/100` curve
+  tilt several times our `amount/100` curve. #137's device reproduces both
+  within 0.7 dB at the same amount
   ([IEQ on content](#r-ieq-adapts-to-content)).
 - Whether `/100` is a true percentage or a ≈0.10 constant for speakers: every
   speaker DAX capture uses `amount=10`, so it needs a capture from a device with
@@ -961,10 +962,11 @@ captures, and both use differences, so R and c cancel:
 R comes from the pink captures, with S taken as 1/3-octave band power. It runs
 from −8 dB at 141 Hz up to +5 dB at 3 kHz and back to −1 dB at 9 kHz, and the
 three voicings agree on it within 1.9 dB. Its shape resembles the ear's
-sensitivity curve, which would fit an IEQ that measures the input
-perceptually; that reading is a further guess. R is fixed by the pink captures
-and cancels in every same-voicing difference, so the speech captures test only
-the 0.5 and the S term. R stays unvalidated until a second device or amount.
+sensitivity curve, which would fit an IEQ that measures the input perceptually;
+that reading is a further guess. R is fixed by the pink captures and cancels in
+every same-voicing difference, so the speech captures test only the 0.5 and the
+S term. R stays unvalidated at other amounts; #137's device reproduces the pink
+curve at amount 10 (below).
 
 With MI steering, `dynamic` passes little of this. Projected onto the unsteered
 correction, `dynamic` minus `movie` (same DE amount, IEQ off; `dynamic` also
@@ -1006,6 +1008,28 @@ constants, #137's device should show:
 
 A curve that differs by several dB would make R, or the strength, a property
 of the device rather than of Dolby's engine.
+
+**The second device, against those predictions.** Both hold on #137's TUF A16.
+Conditions: the reporter's captures of 2026-10-17, as in the
+[DE unit's second device](adaptive-processing.md#r-dialog-enhancer-speech-gating),
+with `movie` captured again after setting its IEQ to Balanced; `ieq-amount` 10,
+no MI steering. Shape only, as above:
+
+| check | dev device | #137 |
+| --- | --- | --- |
+| pink, Balanced − Off, 141 Hz / 9 kHz | +3.5 / −3.1 dB | +3.9 / −3.0 |
+| pink curve, difference from the dev curve, 16 bands 141 Hz–9 kHz | | 0.24 dB RMS, largest +0.68 at 234 Hz |
+| speech − pink, 328–656 Hz, clean speech / over the bed | −2.7 / −2.6 | −2.2 / −2.3 |
+| speech − pink, 2.25–3.75 kHz, clean speech / over the bed | +2.0 / +2.1 | +1.8 / +2.0 |
+
+On `speech_then_pink` the presence-band difference stays near its pink value for
+about 10 s of speech, then rises to +1.2 dB within 2 s; the dev device reads
++0.5 at 10 s and +1.3 at 11 s. After the switch to pink it crosses back through
+zero within about 10 s and keeps drifting, and the 328–656 Hz difference is
+still rising 18 s later: the same slow fall as on the dev device. So at amount
+10 the unsteered IEQ's strength and R behave as engine constants on two devices
+with different tunings. Other amounts and the MI-steered case stay untested
+here.
 
 **Reach.** The IEQ targets are global: 1417 of the 1418 `<constant>` blocks
 across the 1544 content-unique corpus XMLs carry the same three. If the 0.5 and
@@ -1058,8 +1082,6 @@ listened, so it stays an estimate.
 
 Open:
 
-- A second device with the IEQ on and off, without MI steering: does it
-  reproduce the 0.5 strength and R?
 - How the strength depends on `ieq-amount`. Three tested devices' `music`
   profiles run amounts 4, 7 and 13.
 - The IEQ's timing: which pink state is the steady one, and why the pink

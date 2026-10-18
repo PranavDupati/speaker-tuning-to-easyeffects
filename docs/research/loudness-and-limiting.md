@@ -17,6 +17,9 @@
   measured ([dynamics](#r-fixed-dynamics-constants)). On #137's deep low-mid
   thresholds the default cuts 277–555 Hz by 3–4 dB where DAX applies no
   level-dependent cut up to −14 dBFS pink ([#137](#r-low-mid-regulator-vs-dax)).
+  On −2 dBFS tones there DAX's regulator does cut, peaking at 469 Hz and
+  reaching 1.3 kHz, while ours peaks at 392 Hz and ends near 744 Hz with
+  either volmax slot.
 - **Peak normalisation** is the ≈−8…−12 dB absolute EE−DAX offset on the dev
   device at nominal level (pink, −17.8 dBFS). `--enable level-restore`,
   opt-in, gives it back; on the first device heard, loud speech produced audible
@@ -36,12 +39,16 @@ Open:
   pick the slot per tuning stays a hypothesis
   ([bass loss](#r-deep-threshold-bass-loss)).
 - Why the regulator's configured 100:1 realizes as ≈1.8 on the dev device needs
-  a regulator-only EE capture. A DAX capture of `stimulus_stepped_loud` would
-  validate or kill the coupled-bands mapping
+  a regulator-only EE capture. DAX's `stimulus_stepped_loud` captures on two
+  devices cannot decide the coupled-bands mapping, because a single held tone
+  hits the final limiter too; a two-tone stimulus would
   ([dynamics](#r-fixed-dynamics-constants)).
-- The regulator's 1 ms attack against DAX's ~100–150 ms settle, one device's
-  number, waits on a second DAX attack curve
-  ([dynamics](#r-fixed-dynamics-constants)).
+- Where DAX applies each regulator threshold: on #137's tuning its loud-tone
+  cut peaks half a band above ours and reaches two to three bands further up
+  ([#137](#r-low-mid-regulator-vs-dax)).
+- The regulator's 1 ms attack against DAX's settle over roughly 0.1–0.3 s, now
+  measured on two devices. A slower attack would also let onsets reach
+  `limiter#0`, so it needs a listen ([dynamics](#r-fixed-dynamics-constants)).
 - `regulator-stress-amount` as an engagement modifier is untested
   ([stress](#r-regulator-stress-amount)).
 - The slope→ratio and timbre→knee mappings need a device with other values. The
@@ -56,12 +63,6 @@ Open:
   ([captures](#r-deep-threshold-distortion)).
 - The per-channel threshold read rests on one corpus device and is unverified on
   hardware ([per-channel](#r-per-channel-regulator-thresholds)).
-- The dynamics unit says every archived DAX capture is −18 dBFS, but
-  `tools/measure_dax/CLAUDE_WINDOWS.md` lists dev-device `stepped_loud`
-  (−2 dBFS) captures for `dynamic` and `off`. Analyse them for a knee in the
-  bands whose `threshold_high` decodes as 0 dBFS, then correct the sentence. It
-  stays dev-device evidence, not a second device
-  ([dynamics](#r-fixed-dynamics-constants)).
 - #44 round 3 says the bursts were "flattened", while the crest factor it
   records rises from 3.8 to 17.5 dB. An envelope pass over the round-3 EE
   captures would settle the wording ([bass loss](#r-deep-threshold-bass-loss)).
@@ -729,12 +730,62 @@ gain lands after the regulator on `limiter#0`. The reporter heard crackle on
 loud bass with that stack only. T2 and EasyEffects bypassed stayed clean, on the
 same song at the same volume.
 
+**Loud tones.** On held sines at −2 dBFS peak, DAX's regulator does act on this
+tuning. Its level-dependent cut peaks at 469 Hz and still acts at 1.03–1.16 kHz.
+Ours, on its own, peaks at 392 Hz and ends near 744 Hz, with either volmax slot.
+Conditions: the reporter's `stimulus_stepped_loud` captures with Dolby off and
+on Dynamic, 2026-10-17
+([comment](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137#issuecomment-6232786908));
+our three variants with the dialog bell bypassed as shipped, through the EE →
+null-sink route on 2026-10-18. Those three repeat the second run's
+`--disable dialog` captures to 0.0 dB on `pink` and `pink14`. Dolby off matches
+the stimulus within 0.01 dB. Each gain is output minus input over the settled
+0.4–1.0 s of each tone, mean of the three tone orders. "DAX, level part" is its
+loud gain minus its gain on −18 dBFS pink in the tone's band; away from the
+regulator's range it sits at −3 to −5.5 dB, the final limiter. "Ours alone" is
+the default minus `--disable regulator`:
+
+| tone | DAX gain | DAX, level part | ours alone | default − DAX | `output-gain` − DAX | `--disable regulator` − DAX |
+| --- | --- | --- | --- | --- | --- | --- |
+| 234 Hz | +1.4 dB | −5.4 | −11.6 | −10.8 | −5.7 | +0.8 |
+| 277 Hz | +1.0 | −5.3 | −14.4 | −13.6 | −8.2 | +0.8 |
+| 328 Hz | −2.2 | −7.6 | −16.4 | −12.7 | −8.2 | +3.7 |
+| 392 Hz | −6.3 | −10.3 | −18.7 | −11.3 | −6.4 | +7.5 |
+| 469 Hz | −10.2 | −12.8 | −16.3 | −5.4 | −0.9 | +10.8 |
+| 555 Hz | −5.5 | −7.8 | −13.4 | −7.2 | −2.1 | +6.1 |
+| 656 Hz | −4.9 | −7.3 | −8.9 | −3.3 | +0.9 | +5.6 |
+| 744 Hz | −1.6 | −4.1 | −4.5 | −2.2 | +0.6 | +2.3 |
+| 844 Hz | −3.6 | −5.9 | −1.5 | +2.8 | +4.1 | +4.3 |
+| 933 Hz | −0.6 | −2.5 | −0.3 | −0.7 | −0.5 | −0.5 |
+| 1031 Hz | −6.3 | −7.0 | 0.0 | +3.4 | +3.4 | +3.4 |
+| 1163 Hz | −4.9 | −5.0 | −0.1 | +3.1 | +3.3 | +3.3 |
+
+DAX's three tone orders agree within 0.8 dB from 328 Hz to 1.3 kHz, so the cut
+does not depend on what played before. Its cut is not contiguous: 744 and 933 Hz
+sit at or above the limiter baseline, between cuts at 656, 844 and 1031 Hz.
+Outside 300 Hz–1.35 kHz DAX's output sits at −0.1 dBFS peak on most tones, and
+`--disable regulator` matches it within 0.95 dB RMS (100–300 Hz and 1.35–12.5
+kHz). Most of that residual is the two limiter ceilings: our `limiter#0` holds
+those tones at −1.0 dBFS. So the static path and the limiters agree, and the gap
+is the regulator's. Its cut reaches 63 % within 20–60 ms on DAX, against under
+20 ms on ours ([attack](#r-fixed-dynamics-constants)).
+
+Two readings of the shifted cut remain, both untested. DAX may apply each
+decoded threshold about one band higher than its index; but then 469 and
+656 Hz would cut equally (−30.6 / −29.8 dBFS decoded), where DAX takes 12.8 and
+7.3 dB, so the measured shape is one peak with skirts rather than the decoded
+staircase moved up. Or DAX detects on a different signal than ours, which
+follows our static curve and volmax. These captures cannot separate them. The
+dev device cannot either: on the same stimulus its DAX output sits within 1 dB
+of full scale from 182 to 469 Hz, which hides any regulator cut there, and our
+regulator takes about 1.5 dB at most. For a listener, the `output-gain` preset
+still cuts loud 230–400 Hz content about 6–8 dB more than DAX, and 844–1163 Hz
+content 3–4 dB less.
+
 Open:
 
-- Whether DAX's regulator engages on this tuning at all. Pink tops out at −14
-  dBFS; a `stimulus_stepped_loud` capture pair would show it.
-- Whether DAX applies its dialog enhancer to real speech here. Analysing the
-  `speech` capture needs the reporter's own `stimulus_speech.wav`.
+- Where DAX applies each regulator threshold. A stepped capture at several
+  levels would give DAX's knee per tone, to set against the decoded thresholds.
 - What sets DAX's level-dependent 47 Hz balance.
 - T2 with `--disable dialog`, the closest shipped combination, is unheard.
 
@@ -987,13 +1038,18 @@ currently-ignored regulator fields might inform the engagement.
 
   **The experiment that would validate or kill the mapping is a DAX capture of
   `stimulus_stepped_loud` on Windows.** The file already exists, and
-  `tools/measure_dax/` + `CLAUDE_WINDOWS.md` carry the protocol. Every DAX
-  capture in the archive is −18 dBFS, exactly the level the scope-honesty note
-  above says cannot decide this. A −2 dBFS peak run would show whether DAX
-  itself limits in bands whose `threshold_high` decodes as 0 dBFS. Read it
-  against the known confound: the 4–6 dB spans DAX shows at moderate level are
-  adaptive/MI-steered, not a static ceiling. So the discriminator is whether a
-  *hard* knee appears at full scale, not whether any gain reduction does.
+  `tools/measure_dax/` + `CLAUDE_WINDOWS.md` carry the protocol. Two such
+  captures exist: the dev device's, `dynamic` and `off` on 2026-06-13, and
+  #137's reporter's on 2026-10-17. On both, DAX's output sits at full scale (0.0
+  dBFS peak on the dev device, −0.1 on #137's) on most tones its static gain
+  would carry past it, including tones in bands whose `threshold_high` decodes
+  as 0 dBFS. On the dev device, tones that stay under full scale in those bands
+  show no level-dependent change from 555 Hz to 1.16 kHz (within 0.2 dB of the
+  −18 dBFS pink gain). A single held tone cannot tell a per-band 0 dBFS limit
+  from DAX's full-band final limiter, so the mapping stays undecided. Two tones
+  in different bands, each under full scale and summing above it, would separate
+  them. Read any such capture against the known confound: the 4–6 dB spans DAX
+  shows at moderate level are adaptive/MI-steered, not a static ceiling.
 
 **Second-device datapoint (2026-07-30, the
 [simplified-schema AO units finding](eq-and-frequency-response.md#r-simplified-schema-ao-units)):**
@@ -1025,6 +1081,25 @@ passes at full static gain (0 dBFS peak, every clipped sample in the first
 reduction settles over ~100–150 ms. That is the first direct measurement of a
 DAX limiter time constant, and it puts this entry's 1 ms attack about two orders
 of magnitude too fast on deep bass.
+
+**A second DAX attack curve (2026-10-18, issue
+[#137](#r-low-mid-regulator-vs-dax)).** On #137's tuning DAX's regulator cut on
+−2 dBFS held tones reaches 63 % within about 20–60 ms of the onset and comes
+within 0.5 dB of its final value by about 80–270 ms, from 392 Hz to 1.03 kHz,
+over the three tone orders. At 469 Hz on the ascending pass, in 20 ms windows,
+the gain against the input is as below; the first window holds the tone's
+10 ms fade-in:
+
+| time after onset | 10 ms | 20 | 40 | 80 | 160 | 320 | 640 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| DAX | −3.0 dB | −5.8 | −7.2 | −9.0 | −9.9 | −10.3 | −10.5 |
+| ours, default | −8.4 | −15.4 | −15.6 | −15.6 | −15.6 | −15.6 | −15.6 |
+
+Ours settles within 20 ms on the 392, 469 and 656 Hz tones. On the 2.25 kHz
+tone DAX's gain also falls about 1 dB in the second half of each tone
+(0.8–1.1 dB over the three orders), while 1.7 and 5.2 kHz hold within 0.2 dB.
+Which stage does that is unmeasured. With #44's, that makes two devices where
+DAX's regulator settles over roughly 0.1–0.3 s against our 1 ms attack.
 
 <a id="r-regulator-stress-amount"></a>
 

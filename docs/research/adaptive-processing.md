@@ -30,9 +30,9 @@ Open:
   bell on a second device, #137
   ([#137](loudness-and-limiting.md#r-low-mid-regulator-vs-dax)). On human
   speech the dev device's DE engaged on speech only: about +0.5 dB on clean
-  speech and +2 dB over a background, with our bell's shape. Its gain law
-  across `amount` is unmeasured
-  ([speech gating](#r-dialog-enhancer-speech-gating)).
+  speech and +2 dB over a background, with our bell's shape. #137's device
+  gated it the same way, at a similar size. Its gain law across `amount` is
+  unmeasured ([speech gating](#r-dialog-enhancer-speech-gating)).
 - The leveler window formula and the conservative path's −6 dB target offset
   are invented. Falsifying them needs a capture of DAX's MI-steered leveler,
   hard because it is non-LTI ([window](#r-leveler-autogain-window),
@@ -473,8 +473,8 @@ The bell has shipped bypassed since 2026-10-16, with `--enable dialog` as the
 opt-in. On the dev device the two were then compared by ear on the `dynamic`
 profile, by a listener who knew which preset was playing. With the bell off it
 sounded good: slightly less voice presence, and piano less over-emphasised.
-The flip rests on the pink null, seen on two devices (this one and #137's);
-the speech gating is measured on this one only.
+The flip rests on the pink null, seen on two devices (this one and #137's).
+The speech gating is measured on both (second device below).
 
 **Amount 10.** A second Windows session the same day captured Custom 1 and
 Custom 2, the `personalize` profiles. On this device they differ from `movie`
@@ -514,13 +514,44 @@ so it is the IEQ
 band) mixes DE with that IEQ adaptation. `voice` differs from `game` in too many
 fields, including the leveler, to read.
 
+**A second device.** #137's TUF A16 (`SUBSYS_10431C93`) gates its DE the same
+way, at a similar size. Conditions: the reporter's loopback captures, Windows
+Dolby Access defaults, endpoint at 50 %, 2026-10-17
+([comment](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137#issuecomment-6232786908)),
+with byte-identical stimulus files. On that tuning `game` has DE off and leveler
+amount 0, and `movie` DE 5 and leveler 5. Custom 1 has DE 10, leveler 3, its own
+brighter audio-optimizer curve, and deeper regulator thresholds at 469 / 656 /
+844 Hz (−31.2 / −28.2 / −23.0 dBFS against −29.8 / −18.4 / −3.3). Pink
+separates `movie` from `game` by a flat −1.0 dB, the leveler, and Custom 1 by
+its static curve. So each figure is (profile − `game`) on speech minus the same
+on pink, shape only, mean over 2.25–3.75 kHz. The mid / side row is not
+pink-corrected; `movie`'s pink shape against `game` is within 0.1 dB.
+
+| stimulus | dev, amount 5 | dev, amount 10 | #137, amount 5 (`movie`) | #137, amount 10 (Custom 1) |
+| --- | --- | --- | --- | --- |
+| `speech_human` | +0.26 dB | +1.25 | +0.58 | +1.67 |
+| `speech_over_bed`, L | +0.92 | +0.67 | +0.81 | +1.04 |
+| `speech_over_bed`, mid / side | +0.93 / +0.32 | | +0.79 / +0.32 | |
+
+Custom 1's figures carry about ±0.7 dB. Its speech loses 1.9–3.3 dB at
+469–844 Hz against pink, where its thresholds sit deeper, and that lowers the
+shape reference. Leaving those bands out of the reference moves its clean
+figure to +0.98, and `movie`'s to +0.45. On `speech_then_pink` `movie`'s
+difference reads +0.05 dB in the first 2 s window after the switch and at most
+0.0 after it. Custom 1's comes within 0.3 dB of its pink value by about 8 s
+after the switch. `dynamic` (DE 5 with the IEQ and MI steering) reads +0.71
+clean and +0.94 over the bed. So on both devices DE adds well under 1 dB to
+clean speech at amount 5, about 1 dB over a background, and nothing once the
+speech stops. In this metric our fixed bell reads +0.9 dB at amount 5 and +1.7
+at amount 10. DAX's clean-speech figures sit below it on both devices, and
+over a background it matches DAX at amount 5.
+
 Open:
 
-- The gain law across `amount`. Two points on one device rule out linear and
-  fixed-shape, and do not yet give a law.
-- A second device on speech. #137's device is pink-null only
-  ([#137](loudness-and-limiting.md#r-low-mid-regulator-vs-dax)).
-- `dialog-enhancer-ducking`, which is 0 here.
+- The gain law across `amount`. Amount 5 and 10 on the dev device rule out
+  linear and fixed-shape, and do not yet give a law. #137's amount-10 figures
+  are confounded by Custom 1's deeper thresholds.
+- `dialog-enhancer-ducking`, which is 0 on both tunings.
 
 <a id="r-surround-boost-stereo-base"></a>
 
