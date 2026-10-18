@@ -438,6 +438,12 @@ def _regulator_zones(th: list[float]) -> list[tuple[int, int, float]]:
     return zones
 
 
+# The regulator's attack. The XML carries no regulator timing, so this is one
+# global constant, set from DAX captures on two devices and both volmax slots
+# (research `r-fixed-dynamics-constants`).
+REGULATOR_ATTACK_MS = 20.0
+
+
 def make_regulator(regulator: dict | None, freqs: list[int],
                    volmax_boost: float = 0.0,
                    volmax_slot: str = "input-gain",
@@ -510,7 +516,7 @@ def make_regulator(regulator: dict | None, freqs: list[int],
 
     zones = _regulator_zones(th)
 
-    # Build the multiband compressor (used as limiter: ratio=100:1, fast attack).
+    # Build the multiband compressor (used as limiter: ratio=100:1).
     # volmax_slot picks which gain slot carries the static volmax-boost.
     # input-gain (default, issue #23) applies it pre-band-limiting, letting the
     # regulator's per-band downward compression tame the boosted low end before
@@ -561,7 +567,7 @@ def make_regulator(regulator: dict | None, freqs: list[int],
                 "mute": False,
                 "solo": False,
                 "attack-threshold": round(fitted, 4),
-                "attack-time": 1.0,  # very fast for limiting
+                "attack-time": REGULATOR_ATTACK_MS,
                 "release-threshold": MBC_RELEASE_THRESHOLD_FLOOR,
                 "release-time": 50.0,
                 "ratio": round(ratio, 4),

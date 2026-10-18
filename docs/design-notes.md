@@ -285,8 +285,10 @@ below are invented constants. Two, the surround→stereo-base factor and the
 convolver headroom restore, have been removed. Of those still shipping, none is
 validated: the dialog-enhancer ceiling, the MBC and fixed dynamics constants and
 the PEQ trim were compared against the 2026-06-13 X1 Yoga DAX captures without a
-confirming result, and the rest have no DAX capture yet. They are catalogued
-here as a class so a
+confirming result, and the rest have no DAX capture yet. The one exception is
+the regulator's attack, set from two devices' DAX captures in 2026-10
+([attack experiment](research/loudness-and-limiting.md#r-fixed-dynamics-constants)).
+They are catalogued here as a class so a
 [capture campaign](research/measuring-against-windows.md#r-validation-roadmap)
 can attack them deliberately. The
 ["Follow-ups" list](research/measuring-against-windows.md#r-dax-gap-follow-ups)

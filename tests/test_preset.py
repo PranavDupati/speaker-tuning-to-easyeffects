@@ -70,6 +70,7 @@ from lib.preset.autoload import (
 from lib.preset.bands import make_peq_eq
 from lib.preset.build import make_preset
 from lib.preset.plugins import (
+    REGULATOR_ATTACK_MS,
     _disabled_band,
     decode_mbc_bands,
     fit_threshold,
@@ -947,6 +948,21 @@ def test_regulator_distortion_slope_maps_to_ratio(slope, expected_ratio):
         synthetic_regulator([-6.0] * 20, distortion_slope=slope),
         SYNTHETIC_FREQS_20)
     assert reg["band0"]["ratio"] == expected_ratio
+
+
+def test_regulator_attack_is_the_measured_constant_on_every_zone():
+    """The XML has no regulator timing, so every zone band, active or not,
+    takes the one measured global attack (research
+    `r-fixed-dynamics-constants`). Unused slots come from _disabled_band(),
+    which carries its own MBC default and is not checked here."""
+    th = [-12.0] * 5 + [-9.0] * 5 + [-6.0] * 5 + [0.0] * 5
+    reg = make_regulator(synthetic_regulator(th), SYNTHETIC_FREQS_20)
+    zone_bands = [reg[f"band{i}"] for i in range(8)
+                  if reg[f"band{i}"].get("enable-band", True)]
+    assert len(zone_bands) == 4
+    assert REGULATOR_ATTACK_MS == 20.0
+    for band in zone_bands:
+        assert band["attack-time"] == REGULATOR_ATTACK_MS
 
 
 def test_regulator_timbre_maps_to_knee():

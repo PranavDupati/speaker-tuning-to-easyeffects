@@ -46,9 +46,13 @@ Open:
 - Where DAX applies each regulator threshold: on #137's tuning its loud-tone
   cut peaks half a band above ours and reaches two to three bands further up
   ([#137](#r-low-mid-regulator-vs-dax)).
-- The regulator's 1 ms attack against DAX's settle over roughly 0.1–0.3 s, now
-  measured on two devices. A slower attack would also let onsets reach
-  `limiter#0`, so it needs a listen ([dynamics](#r-fixed-dynamics-constants)).
+- The regulator's 20 ms attack, set from two devices' DAX captures, is
+  unheard on the default slot and on the reporters' hardware. On
+  `output-gain` it cuts slightly less than DAX in places. The 50 ms release is
+  unmeasured on DAX ([dynamics](#r-fixed-dynamics-constants)).
+- Whether the regulator's and `limiter#0`'s 1 ms lookahead delays the signal,
+  against the zero-added-latency rule, and whether the regulator's still serves
+  a purpose with a 20 ms attack.
 - `regulator-stress-amount` as an engagement modifier is untested
   ([stress](#r-regulator-stress-amount)).
 - The slope→ratio and timbre→knee mappings need a device with other values. The
@@ -453,10 +457,12 @@ How DAX gets there:
   (`attack 1.0 ms`, the [fixed dynamics constants](#r-fixed-dynamics-constants))
   clamps the same onset instantly: the EE variants show no overshoot at all
   (output-gain −11.2 → −11.4). That is the "punch" difference the reporter
-  described, measured. On the dev X1 Yoga's capture the ride is slower still and
-  leveler-like: the 120 and 180 Hz bursts drift down a further ~3.5 dB between
-  0.3 s and the steady window. So ~150 ms is one device's number, and part of it
-  may be the leveler rather than the regulator.
+  described, measured. The attack has been 20 ms since 2026-10-18
+  ([attack experiment](#r-fixed-dynamics-constants)). On the dev X1 Yoga's
+  capture the ride is slower still and leveler-like: the 120 and 180 Hz bursts
+  drift down a further ~3.5 dB between 0.3 s and the steady window. So ~150 ms
+  is one device's number, and part of it may be the leveler rather than the
+  regulator.
 - *The steady-state ceilings track the decoded thresholds plus the makeup.* DAX
   settles at −10.8 / −10.2 / −8.2 / −8.2 dBFS RMS on the 50 / 80 / 120 / 180 Hz
   tones. The XML's `threshold_high` is −18.375 dBFS for the 47 Hz band and −16.0
@@ -890,8 +896,13 @@ device.
 
 - **Factor (generator):** MBC active-band `knee = −6.0` dB
   (`make_multiband_compressor`; the Dolby 6-tuple has no knee field), regulator
-  `attack 1.0 ms` / `release 50.0 ms` (`make_regulator`).
-- **Why it's a guess:** Chosen from limiting practice, not decoded.
+  `attack 20.0 ms` (`REGULATOR_ATTACK_MS`) / `release 50.0 ms`
+  (`make_regulator`).
+- **Why it's a guess:** The knee and the release are chosen from limiting
+  practice, not decoded. The attack was 1.0 ms on the same grounds until
+  2026-10-18; it is now set from DAX captures on two devices (the attack
+  experiment below), and still not decoded, since the XML has no regulator
+  timing.
 
 **Engaged 2026-06-13** by `stimulus_stepped_loud` (see the
 [MBC ratio and time constants](adaptive-processing.md#r-mbc-ratio-time-constants)).
@@ -1100,6 +1111,79 @@ tone DAX's gain also falls about 1 dB in the second half of each tone
 (0.8–1.1 dB over the three orders), while 1.7 and 5.2 kHz hold within 0.2 dB.
 Which stage does that is unmeasured. With #44's, that makes two devices where
 DAX's regulator settles over roughly 0.1–0.3 s against our 1 ms attack.
+
+**Attack experiment (2026-10-18).** Attacks of 20 and 50 ms bracket DAX's
+regulator onset on both captured devices, where 1 ms is two to four times too
+fast. 20 ms was chosen: on `output-gain` it brings #44's steady bass within
+1.2 dB of DAX's, it makes sustained bass cleaner on both slots, and on the
+default slot it moves every measured level toward DAX's. Conditions: presets
+for #137's tuning and #44's (`SUBSYS_17AA380D`, the round-3 thresholds), built
+on both volmax slots, then the regulator bands' `attack-time` rewritten to 1,
+20 or 50 ms in the generated preset; EE → null-sink route, smoke gate passed;
+compared with each reporter's DAX capture on the same stimulus files. Time to
+63 % of the cut, #137's `stimulus_stepped_loud`, ascending pass:
+
+| tone | DAX | `output-gain`, 1 ms | 20 ms | 50 ms | default slot, 1 ms | 20 ms |
+| --- | --- | --- | --- | --- | --- | --- |
+| 392 Hz | 35 ms | 15 | 30 | 45 | 15 | 25 |
+| 469 Hz | 50 ms | 15 | 30 | 45 | 15 | 25 |
+| 555 Hz | 55 ms | 15 | 35 | 55 | 15 | 30 |
+| 656 Hz | 60 ms | 20 | 45 | 85 | 15 | 35 |
+
+20 ms runs 5–20 ms fast on `output-gain` and 10–25 ms fast on the default
+slot; 50 ms is closer on average but 25 ms slow at 656 Hz. On #44's
+`stimulus_bass_burst` (−5 dBFS peak), as below-300 Hz RMS over 0.5–2.75 s of
+each burst, and as the energy above 1 kHz:
+
+| | steady, 50 / 80 / 120 / 180 Hz | 120 / 180 Hz, 20 ms after onset | >1 kHz steady, 50 / 180 Hz | >1 kHz first 100 ms, 180 Hz |
+| --- | --- | --- | --- | --- |
+| DAX | −10.8 / −10.2 / −8.3 / −8.2 dBFS | −6.1 / −5.1 | −71.5 / −80.9 | −58.9 |
+| `output-gain`, 1 ms | −11.4 / −11.4 / −11.5 / −11.0 | −10.6 / −9.8 | −101.6 / −77.4 | −74.5 |
+| `output-gain`, 20 ms | −10.0 / −9.5 / −9.5 / −9.0 | −4.6 / −3.4 | −113.8 / −95.3 | −67.4 |
+| `output-gain`, 50 ms | −9.2 / −8.5 / −8.2 / −7.6 | −4.4 / −3.3 | −111.5 / −96.0 | −64.1 |
+| default slot, 1 ms | −18.2 / −18.3 / −18.4 / −17.7 | −17.7 / −16.4 | −97.9 / −75.9 | −71.4 |
+| default slot, 20 ms | −16.3 / −16.4 / −16.4 / −15.7 | −6.7 / −5.4 | −116.9 / −92.1 | −70.1 |
+
+The levels here use an 8th-order 300 Hz low-pass, zero-phase, over 0.5–2.75 s;
+the round-4 analysis above reads DAX's 120 Hz burst at −8.2 dBFS.
+
+In LSP the attack does more than time the onset. With Peak detection and the 50
+ms release, a slower attack lets the detector settle lower on a held tone, so
+the steady cut is shallower too: by 1.4–1.9 dB at 20 ms on either slot across
+#137's 234–656 Hz tones, and 2.4–3.0 dB at 50 ms. Which way that moves us
+depends on the slot. On the default slot, wherever our regulator acts, every
+measured tone and burst is still cut deeper than DAX's at 20 ms: by 1.2–11.8 dB
+on #137's 234–744 Hz tones and 5.5–8.1 dB on #44's bursts. So there the
+shallower cut moves toward DAX. On `output-gain` it overshoots in places: #137's
+656 and 744 Hz tones end 2.4 and 1.4 dB less cut than DAX's, and #44's 50 and 80
+Hz bursts 0.8 and 0.7 dB louder. That is where the regulator protects the
+speaker, so `output-gain` now lets slightly more through than Windows there. The
+attack does not fix #137's band placement: on `output-gain` at 20 ms its 234–392
+Hz tones are still cut 4–7 dB deeper than DAX's
+([#137](#r-low-mid-regulator-vs-dax)).
+
+The onset is reproduced at 120 and 180 Hz: 20 ms after a burst starts, the
+default slot at 20 ms reads −6.7 / −5.4 dBFS against DAX's −6.1 / −5.1. At 50
+and 80 Hz no variant reproduces it: the first 10 ms read −8.5 dBFS or lower on
+every attack and slot, against DAX's −4.7 / −4.8, so some other stage caps those
+onsets; which one is unmeasured. The 1 ms attack moves the gain inside each bass
+cycle; 20 ms removes 12–18 dB of the resulting products on #44's held bursts on
+`output-gain` and 14–19 dB on the default slot. On `output-gain` `limiter#0`
+catches the onsets the regulator now lets through, and products in a burst's
+first 100 ms rise 7 dB at 180 Hz, still below DAX's own; on the default slot
+they rise 1.3 dB. The dev device's captures cannot show a regulator attack: on
+its `stimulus_stepped_loud` DAX holds full scale and settles within 20 ms, its
+bursts ride slowly over seconds, and our regulator takes about 1.5 dB at most
+there.
+
+**Heard, and shipped as the default (2026-10-18).** On the dev device, over
+headphones, #44's tuning with `output-gain` at 1 and 20 ms showed no clear
+difference to the listener on two rock tracks (Muse, *Supermassive Black
+Hole*; Queens of the Stone Age, *Make It Wit Chu*). The device's speakers would
+have hidden the low bass, and this tests the processing, not #44's hardware.
+The default slot was measured, not heard. The attack is one global constant,
+not a per-device value, and two devices' captures on both slots back it, so it
+replaced the 1 ms default. The golden digest moved by that field alone.
 
 <a id="r-regulator-stress-amount"></a>
 

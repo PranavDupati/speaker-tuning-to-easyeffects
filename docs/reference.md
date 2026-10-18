@@ -243,10 +243,13 @@ The default stays `input-gain`, and no XML-derived rule picks the slot yet
 ([Why bypass has more bass than the preset](research/loudness-and-limiting.md#r-deep-threshold-bass-loss)).
 
 **Regulator → per-band limiter.** A second MBC instance is configured as a
-limiter, with Peak sidechain and 1 ms attack. Its thresholds come from
-`regulator-tuning` `threshold_high`, in 1/16 dB per band. The 20 Dolby bands are
-grouped into ≤8 zones of identical threshold. Tighter low-frequency limiting
-protects laptop speakers from sub-bass they can't reproduce.
+limiter, with Peak sidechain and a 20 ms attack, set from DAX captures on two
+devices
+([attack experiment](research/loudness-and-limiting.md#r-fixed-dynamics-constants)).
+Its thresholds come from `regulator-tuning` `threshold_high`, in 1/16 dB per
+band. The 20 Dolby bands are grouped into ≤8 zones of identical threshold.
+Tighter low-frequency limiting protects laptop speakers from sub-bass they can't
+reproduce.
 - `regulator-distortion-slope` → limiting ratio `1/(1-slope)`.
 - `regulator-timbre-preservation` → knee `-6 × timbre dB`.
 - `threshold_low` and `stress-amount` are not used.

@@ -91,6 +91,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Changed
 
+- **[AUDIBLE]** Loud bass keeps more of each note's start and distorts less when
+  sustained, as measured against Windows; one listener heard no clear
+  difference. The speaker-protection stage reacts more slowly. Re-run to
+  regenerate.
+  ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137);
+  why in `docs/research/loudness-and-limiting.md`)
 - **[AUDIBLE]** Slightly less voice presence, and less over-emphasis on music
   such as piano, as heard on one device: the dialog enhancer's fixed 2.5 kHz
   boost now ships off, because Windows was measured boosting voices only while
